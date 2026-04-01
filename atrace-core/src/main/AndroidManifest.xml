@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!--
+          端口发现：content://<applicationId>.atrace/atrace/port
+          exported 便于 adb shell content query；仅返回监听端口整数，请评估外发包暴露面。
+        -->
+        <provider
+            android:name="com.aspect.atrace.core.server.AtracePortProvider"
+            android:authorities="${applicationId}.atrace"
+            android:exported="true" />
+    </application>
+</manifest>

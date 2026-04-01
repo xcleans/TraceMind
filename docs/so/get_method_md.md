@@ -1,0 +1,1 @@
+nm -D  libart.so > libart_methid.txt

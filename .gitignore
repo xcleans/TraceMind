@@ -1,0 +1,17 @@
+./local.properties
+./build
+.gradle
+.kotlin
+.idea
+.cursor
+.conversation
+./atrace.workspace
+.kotlin
+.idea
+.venv
+./maven-repo
+
+# atrace-mcp/bin/ contains the deployMcp build artifact (atrace-tool.jar).
+# This file IS intentionally tracked in git for standalone MCP distribution.
+# Do NOT add atrace-mcp/bin/ to this ignore list.
+# Rebuild with:  ./gradlew deployMcp

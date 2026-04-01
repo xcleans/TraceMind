@@ -1,0 +1,2 @@
+[console_scripts]
+atrace-mcp = run_mcp:main
