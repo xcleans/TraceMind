@@ -7,7 +7,7 @@ designed to feed LLM agents with high-quality performance context.
 
 from __future__ import annotations
 
-import os
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -27,31 +27,37 @@ class TraceAnalyzer:
 
     def __init__(self):
         self._sessions: dict[str, TraceSession] = {}
+        # TraceProcessor uses a single subprocess channel; concurrent tp.query()
+        # raises CannotSendRequest('Request-sent') / ResponseNotReady (e.g. parallel MCP tools).
+        self._tp_lock = threading.RLock()
 
     def load(self, trace_path: str, process_name: str | None = None) -> str:
         abs_path = str(Path(trace_path).resolve())
-        if abs_path in self._sessions:
-            s = self._sessions[abs_path]
-            if process_name:
-                s.process_name = process_name
-            return abs_path
+        with self._tp_lock:
+            if abs_path in self._sessions:
+                s = self._sessions[abs_path]
+                if process_name:
+                    s.process_name = process_name
+                return abs_path
 
-        tp = TraceProcessor(trace=abs_path)
-        self._sessions[abs_path] = TraceSession(
-            path=abs_path, tp=tp, process_name=process_name
-        )
-        return abs_path
+            tp = TraceProcessor(trace=abs_path)
+            self._sessions[abs_path] = TraceSession(
+                path=abs_path, tp=tp, process_name=process_name
+            )
+            return abs_path
 
     def close(self, trace_path: str):
         abs_path = str(Path(trace_path).resolve())
-        s = self._sessions.pop(abs_path, None)
-        if s:
-            s.tp.close()
+        with self._tp_lock:
+            s = self._sessions.pop(abs_path, None)
+            if s:
+                s.tp.close()
 
     def close_all(self):
-        for s in self._sessions.values():
-            s.tp.close()
-        self._sessions.clear()
+        with self._tp_lock:
+            for s in self._sessions.values():
+                s.tp.close()
+            self._sessions.clear()
 
     def _get(self, trace_path: str) -> TraceSession:
         abs_path = str(Path(trace_path).resolve())
@@ -63,21 +69,25 @@ class TraceAnalyzer:
             )
         return s
 
+    def _default_process_name(self, trace_path: str) -> str | None:
+        """Session default process; must not call query() (avoids re-entrancy)."""
+        with self._tp_lock:
+            s = self._get(trace_path)
+            return s.process_name
+
     def query(self, trace_path: str, sql: str) -> list[dict[str, Any]]:
-        s = self._get(trace_path)
-        result = s.tp.query(sql)
-        columns = result.column_names
-        rows = []
-        for row in result:
-            rows.append({col: getattr(row, col) for col in columns})
-        return rows
+        with self._tp_lock:
+            s = self._get(trace_path)
+            result = s.tp.query(sql)
+            columns = result.column_names
+            rows = []
+            for row in result:
+                rows.append({col: getattr(row, col) for col in columns})
+            return rows
 
     # ── Pre-built analysis queries ──────────────────────────────
 
     def overview(self, trace_path: str) -> dict:
-        s = self._get(trace_path)
-        tp = s.tp
-
         procs = self.query(trace_path, """
             SELECT pid, name, upid FROM process
             WHERE name IS NOT NULL AND name != ''
@@ -112,14 +122,16 @@ class TraceAnalyzer:
         name_pattern: str | None = None,
         min_dur_ms: float = 0,
         limit: int = 20,
+        main_thread_only: bool = False,
     ) -> list[dict]:
-        s = self._get(trace_path)
-        process = process or s.process_name
+        process = process or self._default_process_name(trace_path)
 
         where = ["s.dur > 0"]
         if process:
             where.append(f"p.name LIKE '%{process}%'")
-        if thread:
+        if main_thread_only:
+            where.append("t.is_main_thread = 1")
+        elif thread:
             where.append(f"t.name LIKE '%{thread}%'")
         if name_pattern:
             where.append(f"s.name LIKE '%{name_pattern}%'")
@@ -197,12 +209,13 @@ class TraceAnalyzer:
         """)
 
     def analyze_startup(self, trace_path: str, process: str | None = None) -> dict:
-        s = self._get(trace_path)
-        process = process or s.process_name
+        process = process or self._default_process_name(trace_path)
         if not process:
             return {"error": "process name required"}
 
-        top = self.top_slices(trace_path, process=process, thread="main", limit=30)
+        top = self.top_slices(
+            trace_path, process=process, limit=30, main_thread_only=True
+        )
 
         bind_app = [r for r in top if "bindApplication" in (r.get("name") or "")]
         activity_create = [
@@ -262,8 +275,7 @@ class TraceAnalyzer:
             blocking_calls    – Binder/GC/IO on main thread ≥ 2ms
             verdict           – machine-readable summary dict for automated comparison
         """
-        s = self._get(trace_path)
-        process = process or s.process_name
+        process = process or self._default_process_name(trace_path)
         if not process:
             return {"error": "process name required"}
 
@@ -467,8 +479,7 @@ class TraceAnalyzer:
         }
 
     def analyze_jank(self, trace_path: str, process: str | None = None) -> dict:
-        s = self._get(trace_path)
-        process = process or s.process_name
+        process = process or self._default_process_name(trace_path)
         if not process:
             return {"error": "process name required"}
 

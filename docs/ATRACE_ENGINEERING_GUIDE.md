@@ -109,6 +109,14 @@ java -jar <atrace-tool.jar> [--json] <subcommand> ...
 
 `atrace-mcp/prompts.py` 注册 **`scroll_performance_workflow`**、**`iterative_diagnosis`** 等，将 **采集 + 多工具分析** 编排为对话流程。列表见 [`atrace-mcp/README.md`](../atrace-mcp/README.md)。
 
+### 4.5 `load_trace` / 分析报错 `Request-sent` 或 `ResponseNotReady`
+
+**原因（已修复）**：Python `perfetto.trace_processor.TraceProcessor` 通过单连接与子进程通信，**不支持并发 `query()`**。宿主（如 Cursor）若对同一 MCP 会话**并行**调用 `analyze_startup`、`trace_overview`、`execute_sql` 等，会触发 `CannotSendRequest('Request-sent')` / `ResponseNotReady`，在客户端常表现为工具失败或超时类错误。
+
+**实现**：`atrace-mcp/trace_analyzer.py` 内 **`TraceAnalyzer` 使用 `threading.RLock` 串行化**所有 `TraceProcessor` 的创建、`query()` 迭代与 `close`，并行调用会排队执行而非损坏连接。
+
+**仍可能超时的情况**：单份 trace 极大或磁盘慢时，**首次** `TraceProcessor(trace=path)` 可能耗时数十秒；若 IDE 对 MCP 工具有固定超时，可尝试缩短采集窗口、或查阅当前 Cursor 版本是否支持调大 MCP 工具超时（以官方设置为准）。
+
 ---
 
 ## 5. 推荐工作流（工程实践）

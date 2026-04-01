@@ -332,6 +332,7 @@ def query_slices(
     name_pattern: str | None = None,
     min_dur_ms: float = 0,
     limit: int = 20,
+    main_thread_only: bool = False,
 ) -> str:
     """Query function call slices from the trace, sorted by duration.
     Use this to find slow functions.
@@ -339,14 +340,21 @@ def query_slices(
     Args:
         trace_path: Path to the loaded trace file
         process: Filter by process name (supports wildcards)
-        thread: Filter by thread name (e.g. "main")
+        thread: Filter by thread name substring (ignored if main_thread_only=True)
         name_pattern: Filter by slice name pattern (e.g. "onCreate")
         min_dur_ms: Minimum duration in milliseconds
         limit: Max results (default 20)
+        main_thread_only: If True, only Android/Java main thread (is_main_thread=1)
     """
     try:
         rows = analyzer.top_slices(
-            trace_path, process, thread, name_pattern, min_dur_ms, limit
+            trace_path,
+            process,
+            thread,
+            name_pattern,
+            min_dur_ms,
+            limit,
+            main_thread_only,
         )
         return json.dumps(rows, indent=2, default=str)
     except Exception as e:
