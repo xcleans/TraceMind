@@ -6,7 +6,7 @@
 
 **TraceMind** 为 Gradle 工程名及发布坐标所用名称（如 JitPack），与 **ATrace** 指同一产品能力。
 
-**基于 MCP 的轨迹分析自动化（Cursor，可选）**：在 **Cursor** 中接入 **`atrace-mcp`** 后，可通过自然语言驱动 MCP 工具，完成 **设备侧采集 → 轨迹合并 → 加载 → Perfetto SQL / 内置分析** 的连贯流程。该流程依赖两类组件：**（1）应用内 ATrace SDK**（增强采样、内置插件、**`TraceServer`** 等）；**（2）MCP 服务端所调用的本仓库采集实现**，将 **系统 Perfetto** 与 **应用侧 ATrace 数据** 合并为 **单个 `.perfetto` 文件**，使系统事件与应用栈在同一时间轴对齐。相对纯手工排障，有利于降低 **PerfettoSQL** 与脚本编写成本、由模型 **辅助选用工具并迭代查询**、在会话内 **多轮下钻**，并输出 **便于归档与对比的结构化结果**。复现实验与参数见 [docs/ATRACE_MCP_DEMO_SCENARIOS.md](docs/ATRACE_MCP_DEMO_SCENARIOS.md)。
+**基于 MCP 的Trace分析AI自动化（结合Cursor）**：在 **Cursor** 中接入 **`atrace-mcp`** 后，可通过自然语言驱动 MCP 工具，完成 **设备侧采集 → 轨迹合并 → 加载 → Perfetto SQL / 内置分析** 的连贯流程。该流程依赖两类组件：**（1）应用内 ATrace SDK**（增强采样、内置插件、**`TraceServer`** 等）；**（2）MCP 服务端所调用的本仓库采集实现**，将 **系统 Perfetto** 与 **应用侧 ATrace 数据** 合并为 **单个 `.perfetto` 文件**，使系统事件与应用栈在同一时间轴对齐。相对纯手工排障，有利于降低 **PerfettoSQL** 与脚本编写成本、由模型 **辅助选用工具并迭代查询**、在会话内 **多轮下钻**，并输出 **便于归档与对比的结构化结果**。复现实验与参数见 [docs/ATRACE_MCP_DEMO_SCENARIOS.md](docs/ATRACE_MCP_DEMO_SCENARIOS.md)。
 
 ## 特性
 
