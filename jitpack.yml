@@ -1,0 +1,7 @@
+# JitPack: https://docs.jitpack.io/
+# 将 atrace-api / atrace-core 安装到本地 Maven，供 JitPack 拾取。
+# 若构建失败：检查 NDK、compileSdk 与 JitPack 环境是否匹配（见 docs/PUBLISH.md）。
+jdk:
+  - openjdk17
+install:
+  - ./gradlew publishToMavenLocal --no-daemon --stacktrace
