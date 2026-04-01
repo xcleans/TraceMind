@@ -2,15 +2,15 @@
 
 ## 产品说明
 
-**ATrace**（Advanced Android Trace）是本仓库提供的 Android **方法级性能追踪 SDK**。采集以 **堆栈采样** 为主，支持按需启用 **ART 方法插桩**；结果可导出为 **Perfetto** 与 **Chrome Trace** 等标准格式，适用于 Perfetto UI 或既有分析流水线。
+- **AI 自动化 Trace 分析（Cursor + MCP）**  
+在 **Cursor** 中接入 **`atrace-mcp`** 后，以 **自然语言驱动 MCP 工具**，将 **Trace 分析全流程自动化**：**设备侧采集 → 轨迹合并 → 加载 → Perfetto SQL / 内置分析** 由模型 **按意图串联**，减少手工脚本、命令行与 Perfetto UI 之间的反复切换；由模型 **自动选用工具、编写与修正查询**，在 **同一会话内多轮下钻**，并输出 **便于归档与版本对比的结构化结果**。复现实验与参数见 [docs/ATRACE_MCP_DEMO_SCENARIOS.md](docs/ATRACE_MCP_DEMO_SCENARIOS.md)。
 
-**TraceMind** 为 Gradle 工程名及发布坐标所用名称（如 JitPack），与 **ATrace** 指同一产品能力。
-
-**基于 MCP 的Trace分析AI自动化（结合Cursor）**：在 **Cursor** 中接入 **`atrace-mcp`** 后，可通过自然语言驱动 MCP 工具，完成 **设备侧采集 → 轨迹合并 → 加载 → Perfetto SQL / 内置分析** 的连贯流程。该流程依赖两类组件：**（1）应用内 ATrace SDK**（增强采样、内置插件、**`TraceServer`** 等）；**（2）MCP 服务端所调用的本仓库采集实现**，将 **系统 Perfetto** 与 **应用侧 ATrace 数据** 合并为 **单个 `.perfetto` 文件**，使系统事件与应用栈在同一时间轴对齐。相对纯手工排障，有利于降低 **PerfettoSQL** 与脚本编写成本、由模型 **辅助选用工具并迭代查询**、在会话内 **多轮下钻**，并输出 **便于归档与对比的结构化结果**。复现实验与参数见 [docs/ATRACE_MCP_DEMO_SCENARIOS.md](docs/ATRACE_MCP_DEMO_SCENARIOS.md)。
+- **增强Trace（系统 Perfetto + 应用 ATrace 合一）**  
+上述自动化建立在 **「增强轨迹」** 之上：**（1）应用内 ATrace SDK** 提供 **应用侧增强采集**（方法栈、内置插件切片、**`TraceServer`** 远程启停 / 采样与插件调参 / 打标与抓栈等）；**（2）MCP 服务端调用的本仓库合并采集实现** 将 **系统 Perfetto**（调度、帧、Binder、logcat 等）与 **ATrace 应用轨道** 合并为 **单个 `.perfetto` 文件**，使 **系统事件与应用调用栈、阻塞与自定义切片** 在 **同一时间轴** 对齐。相对仅使用 adb 侧系统采集，**应用层可见性与可分析维度显著增强**，也更利于 AI 做 **跨层关联与结论归纳**。
 
 ## 特性
 
-- **基于 MCP 的轨迹分析自动化**（可选）：在 **Cursor** 中配置 **`atrace-mcp`**，以对话方式完成采集、加载及 **Perfetto SQL / 内置分析**（如 `analyze_startup`、`analyze_jank`）。**前置条件**：应用已集成 **ATrace SDK**，并按文档完成 MCP **采集侧依赖**部署（**`./gradlew deployMcp`**，详见 [`atrace-mcp/README.md`](atrace-mcp/README.md)）。适用于在 **系统与应用合一轨迹** 上快速定位问题，并支撑回归与报告（见 **快速开始** 中 **atrace-mcp 安装** / **Prompt 与常用话术**，以及下文 **Cursor MCP** 与 [效果样例](docs/ATRACE_MCP_DEMO_SCENARIOS.md)）
+- **AI 自动化 Trace 分析 + 增强轨迹**（可选，**Cursor** + **`atrace-mcp`**）：对话驱动 **全流程自动化分析**；依赖 **系统 + 应用合一 `.perfetto`** 的 **增强轨迹**（见上文产品说明）。**前置条件**：应用已集成 **ATrace SDK**，并完成 MCP **采集侧依赖**（**`./gradlew deployMcp`**，详见 [`atrace-mcp/README.md`](atrace-mcp/README.md)）。步骤与话术见 **快速开始** 中 **atrace-mcp 安装** / **Prompt 与常用话术**，概览见下文 **Cursor MCP** 与 [效果样例](docs/ATRACE_MCP_DEMO_SCENARIOS.md)
 - **高性能**：无锁环形缓冲区，极低采样开销
 - **可扩展**：插件化 Hook 架构，易于添加新采样点
 - **兼容性强**：`minSdk 21`，`compileSdk`/`targetSdk` 与当前工程一致（见 `gradle/libs.versions.toml`）；已针对多版本系统与 **ARM（arm64-v8a / armeabi-v7a）** 构建
