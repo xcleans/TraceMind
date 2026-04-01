@@ -23,8 +23,6 @@
 | `sample` | 集成示例应用 |
 | `third_party/SandHook` | 源码集成的 SandHook 子工程（`settings.gradle.kts` 中 `sandhook-*`） |
 
-`atrace-noop` 为 **Maven 空实现工件**，用于 Release 零开销占位；本树通过发布任务引用，**未**在 `settings.gradle.kts` 中 `include`。
-
 ## 环境要求
 
 - **JDK**：11+（与 `libs.versions.toml` 中 `javaVersion` 一致）
@@ -55,7 +53,7 @@
 ├─────────────────────────────────────────────────────────────────────────┤
 │  ┌──────────────────────── atrace-api（仅依赖 AndroidX）─────────────┐  │
 │  │  ATrace 入口 │ TraceConfig / Builder │ TraceEngine 接口              │  │
-│  │  TraceEngineImpl + 工厂注册（由 core/noop 在启动前注入实现）          │  │
+│  │  TraceEngineImpl + 工厂注册（由 atrace-core 在启动前注入实现）        │  │
 │  │  TracePlugin / PluginContext / SampleType │ ILibLoader │ ALog       │  │
 │  └───────────────────────────────────────────────────────────────────┘  │
 ├─────────────────────────────────────────────────────────────────────────┤
@@ -72,7 +70,7 @@
 
 ## 快速开始
 
-应用依赖 **`atrace-core`**（会传递依赖 **`atrace-api`**）。在 **`ATrace.init` 之前**必须注册引擎实现：Debug/分析构建使用 **`TraceEngineCore.register()`**，Release 可换 **`NoopATrace.register()`**（空实现，见 Maven **`atrace-noop`**）。
+应用依赖 **`atrace-core`**（会传递依赖 **`atrace-api`**）。在 **`ATrace.init` 之前**必须注册引擎实现：在 **`Application.attachBaseContext`**（或等价时机）调用 **`TraceEngineCore.register()`**。若 Release 需零采样开销，可自行实现 **`TraceEngine`** 并通过 **`TraceEngineImpl.registerFactory`** 注册空实现，或不在 Release 包中依赖 **`atrace-core`**。
 
 ```kotlin
 import android.app.Application
@@ -139,8 +137,7 @@ ATrace.init(this, initTraceEngine = {}) {
 | 模块 | 说明 |
 |------|------|
 | `atrace-api` | 稳定对外契约：无 Native、无 SandHook；供集成方编译期依赖 |
-| `atrace-core` | 完整运行时：JNI、`TraceEngineCore`、HTTP 服务、内置插件、动态插桩后端 |
-| `atrace-noop` | **Maven 工件**：空引擎注册，Release 零开销占位（本仓库源码树不单独 include 该模块） |
+| `atrace-core` | 完整运行时：JNI、`TraceEngineCore`、HTTP 服务、内置插件（`com.aspect.atrace.plugins`）、动态插桩后端 |
 | `atrace-tool` | PC 端合并系统 Perfetto 与应用采样 |
 | `atrace-mcp` | Cursor / MCP：采集、Perfetto SQL 分析、设备控制 |
 | `sample` | 集成示例（含 WatchList / 自动 hook 等） |
@@ -149,7 +146,7 @@ ATrace.init(this, initTraceEngine = {}) {
 
 - **`ATrace`**：对外唯一推荐入口（`start` / `stop` / `stopAndExport`、`capture`、`mark`、`beginSection` / `endSection`）。
 - **`TraceConfig` + `Builder`**：缓冲区容量、主/后台线程采样间隔、堆栈深度、时钟与输出格式（Perfetto / Chrome / RAW）、HTTP 开关、Shadow Pause、`ILibLoader` 等。
-- **`TraceEngine` 接口** 与 **`TraceEngineImpl`**：工厂由 `atrace-core` 或 `atrace-noop` 在启动阶段 `registerFactory`，避免 API 模块反向依赖实现。
+- **`TraceEngine` 接口** 与 **`TraceEngineImpl`**：工厂由 **`atrace-core`**（或应用自实现的空引擎）在启动阶段 `registerFactory`，避免 API 模块反向依赖实现。
 - **`TracePlugin` / `PluginContext` / `SampleType`**：插件扩展协议；**`ALog`**：日志门面。
 
 ### `atrace-core`（工程职责）

@@ -1,5 +1,5 @@
 /**
- * ATrace SDK 模块 Maven 发布配置（atrace-api / atrace-core / atrace-noop / atrace-plugins）
+ * Android 库模块 Maven 发布（atrace-api / atrace-core / sandhook-* 等）
  * 支持：Maven Local、本地目录（build/maven-repo 或 atraceLocalPublishDir）
  */
 project.pluginManager.apply("maven-publish")

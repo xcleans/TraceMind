@@ -1,6 +1,6 @@
-# JitPack: https://docs.jitpack.io/
-# 将 atrace-api / atrace-core 安装到本地 Maven，供 JitPack 拾取。
-# 若构建失败：检查 NDK、compileSdk 与 JitPack 环境是否匹配（见 docs/PUBLISH.md）。
+# JitPack: https://docs.jitpack.io/android/
+# publishToMavenLocal：sandhook-* → atrace-api → atrace-core（含工程内依赖，见 docs/PUBLISH.md）。
+# 若构建失败：检查 NDK、compileSdk 与 JitPack 环境是否匹配。
 jdk:
   - openjdk17
 install:

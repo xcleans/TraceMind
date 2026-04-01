@@ -302,8 +302,8 @@ object TraceEngineImpl {
             ALog.e(
                 "ATrace",
                 "TraceEngineImpl: no engine factory registered. " +
-                        "Call TraceEngineCore.register() (debug) or NoopATrace.register() (release) " +
-                        "in Application.attachBaseContext() BEFORE ATrace.init()."
+                        "Call TraceEngineCore.register() in Application.attachBaseContext() " +
+                        "BEFORE ATrace.init(), or register a custom TraceEngine via TraceEngineImpl.registerFactory."
             )
             return null
         }

@@ -26,7 +26,7 @@
 
 | 模块 | 运行位置 | 与「卡顿 trace」的关系 |
 |------|----------|------------------------|
-| **`atrace-api`** | App 进程（Jar / AAR） | **对外契约**：`ATrace`、`TraceConfig`、`TracePlugin` 等；**无 Native**。应用只依赖 api 无法单独采样，需配合 core 或 noop。 |
+| **`atrace-api`** | App 进程（Jar / AAR） | **对外契约**：`ATrace`、`TraceConfig`、`TracePlugin` 等；**无 Native**。应用只依赖 api 无法单独采样，需配合 **`atrace-core`**。 |
 | **`atrace-core`** | App 进程 | **真正产生应用侧轨迹**：栈采样、插件 Hook、`Trace.beginSection` 同类事件写入缓冲区；**HTTP TraceServer**（默认可开）供 PC 启停、下文件；**动态插桩**（WatchList / Art hook）让方法级 slice 进同一套导出格式。流畅度分析里，它解决「应用内细粒度耗时从哪来」。 |
 | **`atrace-tool`** | 开发机（JVM Fat JAR） | **采系统 Perfetto**（`record_android_trace` 等）+ **拉取 atrace-core 导出的二进制采样** → 解码合并为 **单个 `.perfetto`**。没有 core 时仍可抓纯系统 trace，但缺少应用方法轨道。 |
 | **`atrace-mcp`** | 开发机（Python MCP） | **不跑在手机上**。对已有 `.perfetto`：`load_trace` + `execute_sql` / `analyze_scroll_performance` 等；对设备：通过 **`java -jar atrace-tool … --json`** 调 **`capture_trace`**，并可 **HTTP 控制**已集成 core 的 App。 |

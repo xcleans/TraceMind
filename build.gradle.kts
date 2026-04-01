@@ -17,23 +17,79 @@ tasks.register("clean", Delete::class) {
     delete(rootProject.layout.buildDirectory)
 }
 
-// 发布 ATrace SDK 库（atrace-api, core, noop, plugins），不包含 sample / atrace-tool
+// 发布 ATrace SDK + 本地依赖链（SandHook），供 JitPack install 与 mavenLocal 消费
 tasks.register("publishToMavenLocal") {
     group = "publishing"
-    description = "Publishes ATrace SDK to Maven local (~/.m2/repository)"
+    description =
+        "Publishes sandhook-* → atrace-api → atrace-core to Maven local (~/.m2/repository)"
     dependsOn(
+        ":sandhook-annotation:publishReleasePublicationToMavenLocal",
+        ":sandhook-nativehook:publishReleasePublicationToMavenLocal",
+        ":sandhook-hooklib:publishReleasePublicationToMavenLocal",
         ":atrace-api:publishReleasePublicationToMavenLocal",
-        ":atrace-core:publishReleasePublicationToMavenLocal"
+        ":atrace-core:publishReleasePublicationToMavenLocal",
     )
+}
+
+gradle.projectsEvaluated {
+    val pubAnn =
+        rootProject.project(":sandhook-annotation").tasks.named("publishReleasePublicationToMavenLocal")
+    rootProject.project(":sandhook-hooklib").tasks.named("publishReleasePublicationToMavenLocal") {
+        mustRunAfter(pubAnn)
+    }
+    val pubNat =
+        rootProject.project(":sandhook-nativehook").tasks.named("publishReleasePublicationToMavenLocal")
+    val pubHook =
+        rootProject.project(":sandhook-hooklib").tasks.named("publishReleasePublicationToMavenLocal")
+    val pubApi = rootProject.project(":atrace-api").tasks.named("publishReleasePublicationToMavenLocal")
+    rootProject.project(":atrace-core").tasks.named("publishReleasePublicationToMavenLocal") {
+        mustRunAfter(pubAnn)
+        mustRunAfter(pubNat)
+        mustRunAfter(pubHook)
+        mustRunAfter(pubApi)
+    }
+
+    val dirAnn =
+        rootProject.project(":sandhook-annotation").tasks.named(
+            "publishReleasePublicationToLocalDirRepository",
+        )
+    rootProject.project(":sandhook-hooklib").tasks.named(
+        "publishReleasePublicationToLocalDirRepository",
+    ) {
+        mustRunAfter(dirAnn)
+    }
+    val dirNat =
+        rootProject.project(":sandhook-nativehook").tasks.named(
+            "publishReleasePublicationToLocalDirRepository",
+        )
+    val dirHook =
+        rootProject.project(":sandhook-hooklib").tasks.named(
+            "publishReleasePublicationToLocalDirRepository",
+        )
+    val dirApi =
+        rootProject.project(":atrace-api").tasks.named(
+            "publishReleasePublicationToLocalDirRepository",
+        )
+    rootProject.project(":atrace-core").tasks.named(
+        "publishReleasePublicationToLocalDirRepository",
+    ) {
+        mustRunAfter(dirAnn)
+        mustRunAfter(dirNat)
+        mustRunAfter(dirHook)
+        mustRunAfter(dirApi)
+    }
 }
 
 tasks.register("publishToLocalDir") {
     group = "publishing"
-    description = "Publishes ATrace SDK to local directory (build/maven-repo or atraceLocalPublishDir)"
+    description =
+        "Publishes sandhook-* → atrace-api → atrace-core to local dir (atraceLocalPublishDir)"
     dependsOn(
+        ":sandhook-annotation:publishReleasePublicationToLocalDirRepository",
+        ":sandhook-nativehook:publishReleasePublicationToLocalDirRepository",
+        ":sandhook-hooklib:publishReleasePublicationToLocalDirRepository",
         ":atrace-api:publishReleasePublicationToLocalDirRepository",
         ":atrace-core:publishReleasePublicationToLocalDirRepository",
-        ":atrace-noop:publishReleasePublicationToLocalDirRepository"
     )
 }
 

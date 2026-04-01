@@ -40,6 +40,10 @@ android {
         }
     }
 
+    publishing {
+        singleVariant('release')
+    }
+
     buildFeatures {
         buildConfig true
     }
@@ -48,3 +52,5 @@ android {
 dependencies {
     api project(':sandhook-annotation')
 }
+
+apply from: rootProject.file('gradle/publish-atrace.gradle.kts')
