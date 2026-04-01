@@ -10,5 +10,6 @@
 | **Prompt 注册表** | [atrace-mcp/README.md § Prompt 说明](../atrace-mcp/README.md#prompt-说明register_prompts) |
 | **常用话术（可复制）** | [atrace-mcp/README.md § 常用话术集合](../atrace-mcp/README.md#常用话术集合可直接粘贴到-cursor-对话框) |
 | **打包与分发（zip / whl）** | [atrace-mcp/README.md § 打包与分发](../atrace-mcp/README.md#打包与分发) |
+| **效果样例（参数、输出、SQL）** | [ATRACE_MCP_DEMO_SCENARIOS.md](ATRACE_MCP_DEMO_SCENARIOS.md) |
 
 `docs/configs` 文件索引仍见 [`docs/configs/README.md`](configs/README.md)。
