@@ -22,3 +22,5 @@
 完整说明（发布流程、Prompt 话术、`capture_trace` 与 `perfetto_config`）见：
 
 [**atrace-mcp/README.md**](../atrace-mcp/README.md) 中的 **「Perfetto 场景配置（docs/configs）」** 等章节。
+
+**MCP 资源 URI**（连接 `atrace` MCP 后由 AI 读取，内容与上表文件一致）：`atrace://configs/index`、`atrace://configs/readme`、`atrace://configs/startup`、`scroll`、`memory`、`binder`、`animation`、`full-template`。若 `atrace-mcp` 不在仓库内，可设置环境变量 **`ATRACE_DOCS_CONFIGS`** 指向本目录。

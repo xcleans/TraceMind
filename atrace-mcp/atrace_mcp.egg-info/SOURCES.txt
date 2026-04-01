@@ -10,6 +10,15 @@ tool_provisioner.py
 trace_analyzer.py
 bin/README.md
 bin/atrace-tool.jar
+mcp_bundled_resources/README.md
+mcp_bundled_resources/perfetto-trace-processor-reference.md
+mcp_bundled_resources/configs/README.md
+mcp_bundled_resources/configs/animation.txtpb
+mcp_bundled_resources/configs/binder.txtpb
+mcp_bundled_resources/configs/config.txtpb
+mcp_bundled_resources/configs/memory.txtpb
+mcp_bundled_resources/configs/scroll.txtpb
+mcp_bundled_resources/configs/startup.txtpb
 scripts/README.md
 scripts/record_android_trace
 scripts/record_android_trace_win

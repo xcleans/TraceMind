@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "atrace-mcp"
-version = "0.1.0"
+version = "1.0.0"
 description = "ATrace MCP Server — AI-driven Android performance analysis for Cursor/Claude"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -27,9 +27,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/your-org/ATrace"
-Documentation = "https://github.com/your-org/ATrace/tree/main/atrace-mcp/README.md"
-Issues = "https://github.com/your-org/ATrace/issues"
+Homepage = "https://github.com/xcleans/TraceMind"
+Documentation = "https://github.com/xcleans/TraceMind/blob/main/README.md"
+Issues = "https://github.com/xcleans/TraceMind/issues"
 
 # ── Scripts / entry-points ───────────────────────────────────────────────────
 # After `pip install atrace-mcp`, users can run `atrace-mcp` directly.
@@ -61,6 +61,21 @@ py-modules = [
     "scripts/record_android_trace",
     "scripts/record_android_trace_win",
     "scripts/serve_trace_for_perfetto.py",
+]
+# MCP resources (configs + Perfetto SQL reference) for pip/venv installs — server also checks
+# Path(__file__).parent/mcp_bundled_resources when distributing the atrace-mcp/ folder as a zip.
+"atrace_mcp/mcp_bundled_resources" = [
+    "mcp_bundled_resources/README.md",
+    "mcp_bundled_resources/perfetto-trace-processor-reference.md",
+]
+"atrace_mcp/mcp_bundled_resources/configs" = [
+    "mcp_bundled_resources/configs/README.md",
+    "mcp_bundled_resources/configs/animation.txtpb",
+    "mcp_bundled_resources/configs/binder.txtpb",
+    "mcp_bundled_resources/configs/config.txtpb",
+    "mcp_bundled_resources/configs/memory.txtpb",
+    "mcp_bundled_resources/configs/scroll.txtpb",
+    "mcp_bundled_resources/configs/startup.txtpb",
 ]
 
 # ── uv / pip extras ──────────────────────────────────────────────────────────

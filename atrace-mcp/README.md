@@ -1,6 +1,6 @@
-# ATrace MCP Server
+# TranceMind MCP Server
 
-基于 [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) 的 **Android 性能分析服务**，供 Cursor、Claude Desktop 等 AI 客户端调用。支持加载/分析 Perfetto 轨迹、控制设备端 ATrace、采集 CPU（simpleperf）与堆内存（heapprofd），并在设备缺少工具时自动准备二进制。
+基于 [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) 的 **Android 性能分析服务**，供 Cursor、Claude Desktop 等 AI 客户端调用。支持加载/分析 Perfetto 轨迹、控制设备端 TranceMind、采集 CPU（simpleperf）与堆内存（heapprofd），并在设备缺少工具时自动准备二进制。
 
 ---
 
@@ -15,7 +15,7 @@
    - 6.1 [轨迹加载与查询](#61-轨迹加载与查询)
    - 6.2 [内置分析工具](#62-内置分析工具)
    - 6.3 [设备与采集](#63-设备与采集)
-   - 6.4 [ATrace 运行时控制](#64-atrace-运行时控制)
+   - 6.4 [TranceMind 运行时控制](#64-atrace-运行时控制)
    - 6.5 [CPU 剖析（simpleperf）](#65-cpu-剖析simpleperf)
    - 6.6 [堆内存剖析（heapprofd）](#66-堆内存剖析heapprofd)
    - 6.7 [工具辅助](#67-工具辅助)
@@ -38,7 +38,7 @@
 |------|------|
 | **Python 3.10+** | 运行 MCP 服务端 |
 | **ADB** | 设备连接、端口转发、simpleperf/perfetto 推包 |
-| **ATrace 应用** | 设备上已安装并开启 HTTP 服务（默认端口 9090） |
+| **TranceMind 应用** | 设备上已安装并开启 HTTP 服务（默认端口 9090） |
 | **Perfetto Trace Processor** | 由 `perfetto` Python 包提供，用于本地解析轨迹 |
 | **可选：Android NDK** | 设备无 simpleperf 时，从本机 NDK 拷贝或自动下载 |
 | **可选：uv** | 推荐用 `uv run` 管理 Python 环境，无需手动建 venv |
@@ -86,8 +86,8 @@ python server.py --help
 }
 ```
 
-- **Mac / Linux**：`<ATRACE_MCP_PATH>` 填绝对路径，如 `/Users/你的用户名/Desktop/perf-tool/ATrace/atrace-mcp/run_mcp.py`
-- **Windows**：反斜杠写两遍，如 `C:\\Users\\你的用户名\\Desktop\\perf-tool\\ATrace\\atrace-mcp\\run_mcp.py`
+- **Mac / Linux**：`<ATRACE_MCP_PATH>` 填绝对路径，如 `/Users/你的用户名/Desktop/perf-tool/TranceMind/atrace-mcp/run_mcp.py`
+- **Windows**：反斜杠写两遍，如 `C:\\Users\\你的用户名\\Desktop\\perf-tool\\TranceMind\\atrace-mcp\\run_mcp.py`
 
 ### 仅当前项目使用
 
@@ -116,8 +116,8 @@ python server.py --help
 |------|------|----------|
 | 轨迹加载与查询 | 本地解析 `.perfetto`，PerfettoSQL | `load_trace`、`execute_sql`、`query_slices`、`call_chain`、`slice_children`、`thread_states` |
 | 封装分析 | 常见场景 SQL 固化 | `trace_overview`、`analyze_startup`、`analyze_jank`、`analyze_scroll_performance`、`analyze_heap_profile` |
-| 设备采集 | 系统 Perfetto + 应用 ATrace 采样合并 | `capture_trace`（及 `replay_scenario` 等） |
-| 运行时控制 | 经 ATrace HTTP | `pause_tracing` / `resume_tracing`、`list_plugins`、`toggle_plugin`、WatchList / hook 等 |
+| 设备采集 | 系统 Perfetto + 应用 TranceMind 采样合并 | `capture_trace`（及 `replay_scenario` 等） |
+| 运行时控制 | 经 TranceMind HTTP | `pause_tracing` / `resume_tracing`、`list_plugins`、`toggle_plugin`、WatchList / hook 等 |
 | CPU / 堆 | simpleperf、heapprofd | `capture_cpu_profile`、`report_cpu_profile`、`capture_heap_profile` 等 |
 | Prompt | 引导模型按步骤调工具 | 见本文 [Prompt 说明](#prompt-说明register_prompts) |
 
@@ -134,6 +134,30 @@ python server.py --help
 ## Perfetto 场景配置
 
 对应仓库目录 **[`docs/configs/`](../docs/configs/)**：按场景裁剪的 **文本格式 Perfetto 配置**（`.txtpb`）。`capture_trace` 的 **`perfetto_config`** 参数即该文件路径（传给 `atrace-tool -c`）。**不传**时使用工具链内置的默认丰富配置。
+
+### MCP 资源（供 AI 直接读取）
+
+连接本 MCP 后，客户端可订阅或读取以下 **Resource URI**（内容与 `docs/configs` 下文件一致，便于在对话中引用完整 `.txtpb` 文本）：
+
+| URI | 内容 |
+|-----|------|
+| `atrace://configs/index` | 资源索引与 `capture_trace` 用法提示 |
+| `atrace://configs/readme` | 与 [`docs/configs/README.md`](../docs/configs/README.md) 相同 |
+| `atrace://configs/startup` | `startup.txtpb` |
+| `atrace://configs/scroll` | `scroll.txtpb` |
+| `atrace://configs/memory` | `memory.txtpb` |
+| `atrace://configs/binder` | `binder.txtpb` |
+| `atrace://configs/animation` | `animation.txtpb` |
+| `atrace://configs/full-template` | `config.txtpb`（全量模板） |
+
+| URI（SQL 分析） | 内容 |
+|-----------------|------|
+| `atrace://perfetto-sql-reference` | 表目录、Android 常用 PerfettoSQL（慢函数/卡顿/调度/内存/Binder/锁/启动）、stdlib `INCLUDE` 表、附录速查；节选 [`.conversation/perfetto-trace-processor-reference.md`](../.conversation/perfetto-trace-processor-reference.md)，供 **`execute_sql`** 前查阅 |
+| `atrace://sql-patterns` | 服务端内置的更短 SQL 片段 |
+
+**路径解析**：默认要求 **TraceMind 单体仓库布局**（`atrace-mcp` 与 `docs/configs` 同级）。若 MCP 单独拷贝到其它目录，可设置环境变量 **`ATRACE_DOCS_CONFIGS`** 指向包含上述文件的目录。
+
+**SQL 参考文件**：优先 **`mcp_bundled_resources/perfetto-trace-processor-reference.md`**（独立分发 / pip），否则为 **`TraceMind/.conversation/...`**。也可用 **`ATRACE_PERFETTO_SQL_REFERENCE`** 指向任意 Markdown；缺失时资源体会提示改用 `atrace://sql-patterns`。
 
 **使用前**：将各文件中的 **`atrace_apps: "com.your.app"`** 改为真实包名；`memory.txtpb` 若含 **heapprofd `process_cmdline`** 需同步修改。
 
@@ -769,6 +793,19 @@ cd ATrace
 | `atrace-mcp/dist/atrace_mcp-<VERSION>-py3-none-any.whl` | 方式二：pip 安装包 |
 
 > **前置条件**：需要 Java（`./gradlew` 依赖）和 `uv`（`brew install uv` 或 `pip install uv`）。
+
+### MCP 静态资源（独立分发也能用）
+
+`atrace://configs/*`、`atrace://perfetto-sql-reference` 等依赖磁盘上的文本文件。实现上会按顺序查找：
+
+1. 环境变量 **`ATRACE_DOCS_CONFIGS`** / **`ATRACE_PERFETTO_SQL_REFERENCE`**（显式覆盖）
+2. **`mcp_bundled_resources/`**（与 `server.py` 同目录 —— 适合 **zip 解压整个 `atrace-mcp/`**）
+3. **`{sys.prefix}/atrace_mcp/mcp_bundled_resources/`**（**pip / whl** 安装时由 `pyproject.toml` 的 `data_files` 写入虚拟环境）
+4. TraceMind 单体仓库路径 `docs/configs`、`/.conversation/`（本地开发）
+
+目录 **`atrace-mcp/mcp_bundled_resources/`** 已纳入仓库与 wheel，内含与 `docs/configs`、`.conversation/perfetto-trace-processor-reference.md` 同步的副本；更新上游文件后请同步再发版（见该目录下 `README.md`）。
+
+**不依赖文件**：`atrace://sql-patterns` 内嵌在 `server.py` 中，任意分发形态下都可用。
 
 ---
 

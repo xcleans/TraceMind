@@ -141,7 +141,7 @@ java -jar <atrace-tool.jar> [--json] <subcommand> ...
 | [`atrace-mcp/README.md`](../atrace-mcp/README.md) | MCP 工具全集、`docs/configs` 场景配置、Prompt、打包分发、故障排查 |
 | [`PERFETTO_JANK_GUIDE.md`](PERFETTO_JANK_GUIDE.md) | 卡顿与 FrameTimeline 分析 |
 | [`configs/README.md`](configs/README.md) | Perfetto 场景 `.txtpb` 索引 |
-| [`PHASE3_DYNAMIC_INSTRUMENTATION.md`](PHASE3_DYNAMIC_INSTRUMENTATION.md) | 动态插桩 / WatchList |
+| [`ARTMETHOD_WATCHLIST.md`](ARTMETHOD_WATCHLIST.md) | 动态插桩 / WatchList（`addWatchedRule` 等） |
 | [`ARTMETHOD_WATCHLIST.md`](ARTMETHOD_WATCHLIST.md) | ArtMethod 与规则说明 |
 | [Perfetto ATrace 与 ftrace](https://perfetto.dev/docs/getting-started/atrace) | 应用 slice 与系统 trace 同 buffer 的关系 |
 

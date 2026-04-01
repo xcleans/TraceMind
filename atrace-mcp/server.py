@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -28,6 +29,128 @@ from device_controller import DeviceController
 from trace_analyzer import TraceAnalyzer
 from prompts import register_prompts
 import tool_provisioner
+
+
+def _mcp_bundled_resources_root() -> Path | None:
+    """Standalone / pip: `mcp_bundled_resources` next to server.py or under sys.prefix/atrace_mcp/."""
+    beside = Path(__file__).resolve().parent / "mcp_bundled_resources"
+    if beside.is_dir():
+        return beside
+    pip_layout = Path(sys.prefix) / "atrace_mcp" / "mcp_bundled_resources"
+    if pip_layout.is_dir():
+        return pip_layout
+    return None
+
+
+def _docs_configs_dir() -> Path | None:
+    """Perfetto .txtpb configs: env → bundled → monorepo docs/configs."""
+    override = os.environ.get("ATRACE_DOCS_CONFIGS", "").strip()
+    if override:
+        p = Path(override).expanduser().resolve()
+        if p.is_dir():
+            return p
+    bundled = _mcp_bundled_resources_root()
+    if bundled is not None:
+        cfg = bundled / "configs"
+        if cfg.is_dir():
+            return cfg
+    base = Path(__file__).resolve().parent.parent / "docs" / "configs"
+    if base.is_dir():
+        return base
+    return None
+
+
+def _read_docs_config_file(filename: str) -> str:
+    root = _docs_configs_dir()
+    if root is None:
+        return (
+            f"# docs/configs directory not found\n\n"
+            "Expected one of:\n"
+            "- **`atrace-mcp/mcp_bundled_resources/configs/`** (folder or pip wheel with bundled resources)\n"
+            "- **TraceMind monorepo** `docs/configs/` next to `atrace-mcp/`\n"
+            "- Environment variable **ATRACE_DOCS_CONFIGS** pointing at a config directory\n\n"
+            f"Monorepo default would be: `{Path(__file__).resolve().parent.parent / 'docs' / 'configs'}`\n"
+        )
+    path = root / filename
+    if not path.is_file():
+        return f"# File not found: `{filename}`\n\nSearched in `{root}`.\n"
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
+def _perfetto_sql_reference_path() -> Path | None:
+    """Markdown for PerfettoSQL: env → bundled → TraceMind .conversation/."""
+    override = os.environ.get("ATRACE_PERFETTO_SQL_REFERENCE", "").strip()
+    if override:
+        p = Path(override).expanduser().resolve()
+        if p.is_file():
+            return p
+    bundled = _mcp_bundled_resources_root()
+    if bundled is not None:
+        p = bundled / "perfetto-trace-processor-reference.md"
+        if p.is_file():
+            return p
+    default = (
+        Path(__file__).resolve().parent.parent
+        / ".conversation"
+        / "perfetto-trace-processor-reference.md"
+    )
+    if default.is_file():
+        return default
+    return None
+
+
+def _extract_perfetto_sql_reference_for_mcp(full_text: str) -> str:
+    """Schema (§1), common queries (§3), appendix — omit Python API, perfetto-mcp, JVM sections."""
+    header = (
+        "# Perfetto SQL reference (MCP excerpt for execute_sql)\n\n"
+        "_From `.conversation/perfetto-trace-processor-reference.md`: "
+        "§1 tables, §3 common queries, appendix cheat sheet._\n\n"
+    )
+    chunks: list[str] = []
+    spans = (
+        (
+            "## 1. Available SQL Tables",
+            "## 2. Python API Integration",
+        ),
+        (
+            "## 3. Common SQL Queries for Android Performance",
+            "## 4. perfetto-mcp Architecture",
+        ),
+        (
+            "## Appendix: Quick Reference Cheat Sheet",
+            None,
+        ),
+    )
+    for start_marker, end_marker in spans:
+        start = full_text.find(start_marker)
+        if start < 0:
+            continue
+        if end_marker:
+            end = full_text.find(end_marker, start + 1)
+            block = full_text[start:end] if end >= 0 else full_text[start:]
+        else:
+            block = full_text[start:]
+        block = block.strip()
+        if block:
+            chunks.append(block)
+    if chunks:
+        return header + "\n\n---\n\n".join(chunks)
+    return header + full_text.strip()
+
+
+def _read_perfetto_sql_reference_mcp() -> str:
+    path = _perfetto_sql_reference_path()
+    if path is None:
+        return (
+            "# Perfetto SQL reference file not found\n\n"
+            "Expected **`mcp_bundled_resources/perfetto-trace-processor-reference.md`** "
+            "(standalone folder or pip install with bundled data), or TraceMind "
+            "`.conversation/perfetto-trace-processor-reference.md`, or set "
+            "**ATRACE_PERFETTO_SQL_REFERENCE** to a markdown file path.\n\n"
+            "Use MCP resource **atrace://sql-patterns** for built-in short snippets.\n"
+        )
+    full = path.read_text(encoding="utf-8", errors="replace")
+    return _extract_perfetto_sql_reference_for_mcp(full)
 
 
 def _spawn_scroll_during_capture(
@@ -84,6 +207,13 @@ profile CPU with simpleperf, and profile heap memory with heapprofd.
 4. Use query_slices / execute_sql to drill into specifics
 5. Use analyze_startup / analyze_jank for structured analysis
 6. If you need more data, use capture_trace with different parameters
+
+═══ MCP Resources (read before tuning capture_trace) ═══
+- **atrace://configs/index** — catalog of Perfetto scenario configs (.txtpb)
+- **atrace://configs/readme** — usage notes (replace atrace_apps, paths)
+- **atrace://configs/startup** | **scroll** | **memory** | **binder** | **animation** | **full-template** — full .txtpb text for perfetto_config / adb perfetto -c
+- **atrace://perfetto-sql-reference** — table catalog, common Android PerfettoSQL (§3), appendix (for execute_sql)
+- **atrace://sql-patterns** — shorter PerfettoSQL snippets
 
 ═══ atrace-tool Setup ═══
 capture_trace requires atrace-tool to be built. If not built, it falls back to
@@ -227,6 +357,9 @@ def query_slices(
 def execute_sql(trace_path: str, sql: str) -> str:
     """Execute arbitrary PerfettoSQL on a loaded trace.
     Use this for custom exploration when pre-built tools aren't enough.
+
+    Before writing complex queries, fetch MCP resource **atrace://perfetto-sql-reference**
+    (table list, common patterns, stdlib INCLUDE modules) or **atrace://sql-patterns** for snippets.
 
     Common tables:
       - slice: function call spans (name, dur, ts, track_id, depth, parent_id)
@@ -1679,6 +1812,124 @@ def trace_viewer_hint(trace_path: str) -> str:
         "(or drag the file onto the page) → select this file. The trace will load for "
         "interactive analysis (heap flamegraph, slices, etc.)."
     )
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Resources: docs/configs Perfetto .txtpb (for capture_trace perfetto_config)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+@mcp.resource(
+    "atrace://configs/index",
+    title="Perfetto configs index",
+    description="Catalog of atrace://configs/* URIs; use before capture_trace(perfetto_config=...).",
+    mime_type="text/markdown",
+)
+def perfetto_configs_index() -> str:
+    """Index of bundled Perfetto text configs (docs/configs). Fetch a URI for full .txtpb body."""
+    root = _docs_configs_dir()
+    root_line = f"Resolved directory: `{root}`\n\n" if root else (
+        "Directory not resolved (set ATRACE_DOCS_CONFIGS or use TraceMind repo layout).\n\n"
+    )
+    return (
+        root_line
+        + "# Perfetto scenario configs (MCP resources)\n\n"
+        + "| URI | File | Use |\n"
+        + "|-----|------|-----|\n"
+        + "| `atrace://configs/readme` | README.md | How to edit paths / atrace_apps |\n"
+        + "| `atrace://configs/startup` | startup.txtpb | Cold/warm launch, first frame |\n"
+        + "| `atrace://configs/scroll` | scroll.txtpb | List scroll / jank |\n"
+        + "| `atrace://configs/memory` | memory.txtpb | Memory, GC, heapprofd (heavy) |\n"
+        + "| `atrace://configs/binder` | binder.txtpb | Binder / IPC |\n"
+        + "| `atrace://configs/animation` | animation.txtpb | Animations / transitions |\n"
+        + "| `atrace://configs/full-template` | config.txtpb | Full template, not for daily capture |\n"
+        + "\n**capture_trace**: pass a **filesystem path** as `perfetto_config` (e.g. "
+        "`docs/configs/scroll.txtpb` from repo root), or copy content from a resource into a temp "
+        "`.txtpb` if only MCP text is available.\n"
+        + "\nSee also: `docs/configs/README.md` in the TraceMind repo.\n"
+    )
+
+
+@mcp.resource(
+    "atrace://configs/readme",
+    title="docs/configs README",
+    description="How to use Perfetto .txtpb files with MCP capture_trace and adb perfetto.",
+    mime_type="text/markdown",
+)
+def perfetto_configs_readme() -> str:
+    return _read_docs_config_file("README.md")
+
+
+@mcp.resource(
+    "atrace://configs/startup",
+    title="Perfetto config: startup.txtpb",
+    description="Cold/warm startup; am/wm/dalvik/binder_driver/FrameTimeline-oriented.",
+)
+def perfetto_config_startup() -> str:
+    return _read_docs_config_file("startup.txtpb")
+
+
+@mcp.resource(
+    "atrace://configs/scroll",
+    title="Perfetto config: scroll.txtpb",
+    description="Scroll/list jank; sched + gfx/view/input + FrameTimeline + logcat.",
+)
+def perfetto_config_scroll() -> str:
+    return _read_docs_config_file("scroll.txtpb")
+
+
+@mcp.resource(
+    "atrace://configs/memory",
+    title="Perfetto config: memory.txtpb",
+    description="Memory/GC/heapprofd; high overhead — use only when needed.",
+)
+def perfetto_config_memory() -> str:
+    return _read_docs_config_file("memory.txtpb")
+
+
+@mcp.resource(
+    "atrace://configs/binder",
+    title="Perfetto config: binder.txtpb",
+    description="Binder and cross-process latency; noisier than scroll config.",
+)
+def perfetto_config_binder() -> str:
+    return _read_docs_config_file("binder.txtpb")
+
+
+@mcp.resource(
+    "atrace://configs/animation",
+    title="Perfetto config: animation.txtpb",
+    description="Property/transition animations; lighter am/binder, gfx/view/sync focused.",
+)
+def perfetto_config_animation() -> str:
+    return _read_docs_config_file("animation.txtpb")
+
+
+@mcp.resource(
+    "atrace://configs/full-template",
+    title="Perfetto config: config.txtpb (full template)",
+    description="Large all-in template; prefer scenario-specific configs for routine capture.",
+)
+def perfetto_config_full_template() -> str:
+    return _read_docs_config_file("config.txtpb")
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# Resource: Perfetto Trace Processor SQL reference (execute_sql)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+@mcp.resource(
+    "atrace://perfetto-sql-reference",
+    title="Perfetto SQL reference (tables + common queries)",
+    description=(
+        "Excerpt from perfetto-trace-processor-reference.md: SQL tables, Android query patterns, "
+        "stdlib modules, appendix. Use with execute_sql."
+    ),
+    mime_type="text/markdown",
+)
+def perfetto_sql_reference() -> str:
+    return _read_perfetto_sql_reference_mcp()
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

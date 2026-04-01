@@ -74,6 +74,12 @@ class FakeCtrl:
         self.package = package
         FakeCtrl._created.append({"serial": serial, "port": port, "package": package})
 
+    def try_setup_forward(self) -> bool:
+        return True
+
+    def check_http_reachable(self) -> bool:
+        return True
+
     def app_status(self):
         return dict(RESPONSES["status"])
 
