@@ -1,6 +1,12 @@
-# TranceMind MCP Server
+# TraceMind MCP Server
 
-基于 [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) 的 **Android 性能分析服务**，供 Cursor、Claude Desktop 等 AI 客户端调用。支持加载/分析 Perfetto 轨迹、控制设备端 TranceMind、采集 CPU（simpleperf）与堆内存（heapprofd），并在设备缺少工具时自动准备二进制。
+基于 [Model Context Protocol（MCP）](https://modelcontextprotocol.io/) 的 **Android 性能分析服务**，面向 **Cursor**、Claude Desktop 等客户端。在 **Cursor** 中接入本服务后，可通过自然语言驱动 MCP 工具，完成 **增强采集 → 轨迹合并 → `load_trace` / `execute_sql` / `analyze_*`**，由模型 **辅助选用工具、构造与修正 SQL、多轮下钻并归纳结论**。
+
+**采集**：依赖应用内 **ATrace SDK**（方法栈、插件、**`TraceServer`** 等）。需合并系统与应用数据时，本进程调用随 **`./gradlew deployMcp`** 部署的 **采集 JAR**（与命令行实现同源），将 **系统 Perfetto** 与 **ATrace 端上数据** 合并为 **单个 `.perfetto` 文件**。**分析**：仅通过本服务注册的 MCP 工具执行。
+
+**相对纯手工工作流的侧重**：流程连贯、降低 PerfettoSQL 编写成本、会话内快速迭代、结构化产出（表格 / JSON）便于归档。更系统的对比见根目录 [README.md](../README.md) 中 **「Cursor MCP：AI 辅助下的轨迹分析」** 一节。
+
+另支持设备端 ATrace 运行时控制、CPU 剖析（simpleperf）与堆内存剖析（heapprofd），并在设备缺少工具时自动准备二进制。可复现实验与 Prompt 示例见 [`docs/ATRACE_MCP_DEMO_SCENARIOS.md`](../docs/ATRACE_MCP_DEMO_SCENARIOS.md)。
 
 ---
 
@@ -15,7 +21,7 @@
    - 6.1 [轨迹加载与查询](#61-轨迹加载与查询)
    - 6.2 [内置分析工具](#62-内置分析工具)
    - 6.3 [设备与采集](#63-设备与采集)
-   - 6.4 [TranceMind 运行时控制](#64-atrace-运行时控制)
+   - 6.4 [ATrace 运行时控制](#64-atrace-运行时控制)
    - 6.5 [CPU 剖析（simpleperf）](#65-cpu-剖析simpleperf)
    - 6.6 [堆内存剖析（heapprofd）](#66-堆内存剖析heapprofd)
    - 6.7 [工具辅助](#67-工具辅助)
@@ -38,7 +44,7 @@
 |------|------|
 | **Python 3.10+** | 运行 MCP 服务端 |
 | **ADB** | 设备连接、端口转发、simpleperf/perfetto 推包 |
-| **TranceMind 应用** | 设备上已安装并开启 HTTP 服务（默认端口 9090） |
+| **集成 ATrace 的应用** | 被测应用已安装并运行，**TraceServer**（HTTP）可被本机采集端访问（通常需 **ADB 端口转发**，端口以工程与转发配置为准） |
 | **Perfetto Trace Processor** | 由 `perfetto` Python 包提供，用于本地解析轨迹 |
 | **可选：Android NDK** | 设备无 simpleperf 时，从本机 NDK 拷贝或自动下载 |
 | **可选：uv** | 推荐用 `uv run` 管理 Python 环境，无需手动建 venv |
@@ -116,8 +122,8 @@ python server.py --help
 |------|------|----------|
 | 轨迹加载与查询 | 本地解析 `.perfetto`，PerfettoSQL | `load_trace`、`execute_sql`、`query_slices`、`call_chain`、`slice_children`、`thread_states` |
 | 封装分析 | 常见场景 SQL 固化 | `trace_overview`、`analyze_startup`、`analyze_jank`、`analyze_scroll_performance`、`analyze_heap_profile` |
-| 设备采集 | 系统 Perfetto + 应用 TranceMind 采样合并 | `capture_trace`（及 `replay_scenario` 等） |
-| 运行时控制 | 经 TranceMind HTTP | `pause_tracing` / `resume_tracing`、`list_plugins`、`toggle_plugin`、WatchList / hook 等 |
+| 设备采集 | 系统 Perfetto + 应用 ATrace 采样合并 | `capture_trace`（及 `replay_scenario` 等） |
+| 运行时控制 | 经 ATrace **TraceServer**（HTTP） | `pause_tracing` / `resume_tracing`、`list_plugins`、`toggle_plugin`、WatchList / hook 等 |
 | CPU / 堆 | simpleperf、heapprofd | `capture_cpu_profile`、`report_cpu_profile`、`capture_heap_profile` 等 |
 | Prompt | 引导模型按步骤调工具 | 见本文 [Prompt 说明](#prompt-说明register_prompts) |
 

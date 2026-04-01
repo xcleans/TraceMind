@@ -1,10 +1,31 @@
-# ATrace MCP 效果样例
+# ATrace MCP 效果样例（基于 MCP 的轨迹分析自动化）
 
-参考：[atrace-mcp/README.md](../atrace-mcp/README.md)
+本文说明如何在 **Cursor** 中通过 **`atrace-mcp`** 完成 **轨迹采集与分析自动化**：以对话编排 **增强采集（ATrace SDK + MCP 侧合并实现）→ 加载 → 预置分析 / 自定义 SQL**，使 **系统 Perfetto** 与 **应用侧 ATrace 数据** 在同一时间轴对齐，并由模型 **辅助选用工具、迭代查询与归纳结论**。文内给出 **可复现参数、示例输出量级及解读要点**（包名与路径请按本地环境替换）。
+
+**参考**：[atrace-mcp/README.md](../atrace-mcp/README.md)、根目录 [README.md](../README.md)（「Cursor MCP：AI 辅助下的轨迹分析」一节）
+
+---
+
+## 0. 自动化分析能力概览
+
+| 能力 | 说明 |
+|------|------|
+| **合并 trace** | 一次 `capture_trace` 得到 **系统侧 + 应用侧** 单一 `.perfetto`，便于 AI 用 `execute_sql` / `analyze_*` 跨层关联（binder、帧、主线程 slice、应用栈等）。 |
+| **结构化结论** | `analyze_startup`、`analyze_jank` 等把常见 PerfettoSQL 固化成 JSON/表，适合直接贴进对话里做**回归对比**或**写进报告**。 |
+| **按需下钻** | 在对话里追加「锁竞争 / 某 Activity / 某进程」等，`execute_sql` 迭代；大文件若 MCP 单次超时，可用文内 **本地 TraceAnalyzer** 命令等价执行。 |
+| **人工校验** | 同一文件用 [Perfetto UI](https://ui.perfetto.dev) 打开，对照时间轴与 AI 结论。 |
+
+**前置**：设备 ADB；应用已集成 **ATrace SDK**；按文档执行 **`./gradlew deployMcp`**（或等价方式）使 MCP 具备 **合并采集** 所需 JAR；被测进程可按场景冷启。
 
 ---
 
 ## 1. 冷启动抓取与分析
+
+### 效果说明（本样例 trace 上可验证）
+
+- 区分 **主进程** 与 **`:plugin1` 等多进程**：`bindApplication` / DEX 耗时一眼可见。  
+- 主线程 **首屏**：`Choreographer#doFrame`、`RV OnLayout` 等与 **`WelcomeActivity` 生命周期** 可对齐。  
+- 合并 trace 中 **slice 规模大**（数十万级）时，优先看 `blocking_calls` / 主线程 SQL Top，再下钻。
 
 ### `capture_trace`
 
@@ -15,7 +36,7 @@
 | `duration_seconds` | `20` |
 | `output_dir` | `/tmp/atrace_qiyi_coldstart` |
 
-### 后续工具
+### 后续工具（建议同一会话内顺序调用，避免并行）
 
 `load_trace` → `trace_path` = 返回的 `merged_trace`  
 `trace_overview` → `trace_path`  
@@ -63,7 +84,13 @@ a.close(p)
 
 ## 2. 锁竞争（`execute_sql`）
 
-主线程 monitor / Lock，`dur >= 3ms`：
+### 效果说明（本样例 trace 上可验证）
+
+- **主线程**：`monitor contention` 可定位 **`nativeLoad` 串行**、**WebView 初始化**、**预加载线程与 inflate 抢锁** 等百毫秒级问题。  
+- **后台线程**：`pthread mutex`、Camera / OkHttp / MessageQueue 等争用，用于解释「启动期 CPU 忙但 UI 卡点不在主线程」类现象。  
+- 与 **§1 冷启动** 对照：DEX / Application 阶段与锁等待时间戳对齐，便于判断优化优先级。
+
+### SQL：主线程 monitor / Lock（`dur >= 3ms`）
 
 ```sql
 SELECT
@@ -83,7 +110,7 @@ ORDER BY s.dur DESC
 LIMIT 30;
 ```
 
-全进程锁相关 Top，`dur >= 1ms`：
+### SQL：全进程锁相关 Top（`dur >= 1ms`）
 
 ```sql
 SELECT pr.name AS process, t.name AS thread, t.is_main_thread AS main,
@@ -116,6 +143,8 @@ LIMIT 40;
 
 ---
 
-## 3. Perfetto UI
+## 3. Perfetto UI（对照校验）
 
 `https://ui.perfetto.dev` → Open trace file → 上述 `.perfetto`
+
+用于核对 **帧时间线、CPU、主线程 slice** 与 MCP / SQL 结论是否一致。

@@ -1,34 +1,40 @@
 # TraceMind / ATrace
 
-**TraceMind** 是本仓库的 Gradle 工程名；**ATrace**（Advanced Android Trace）是其中的高性能、可扩展 **Android 方法级追踪 SDK** 及配套工具链，基于堆栈采样与可选的 Art 方法插桩。
+## 产品说明
+
+**ATrace**（Advanced Android Trace）是本仓库提供的 Android **方法级性能追踪 SDK**。采集以 **堆栈采样** 为主，支持按需启用 **ART 方法插桩**；结果可导出为 **Perfetto** 与 **Chrome Trace** 等标准格式，适用于 Perfetto UI 或既有分析流水线。
+
+**TraceMind** 为 Gradle 工程名及发布坐标所用名称（如 JitPack），与 **ATrace** 指同一产品能力。
+
+**基于 MCP 的轨迹分析自动化（Cursor，可选）**：在 **Cursor** 中接入 **`atrace-mcp`** 后，可通过自然语言驱动 MCP 工具，完成 **设备侧采集 → 轨迹合并 → 加载 → Perfetto SQL / 内置分析** 的连贯流程。该流程依赖两类组件：**（1）应用内 ATrace SDK**（增强采样、内置插件、**`TraceServer`** 等）；**（2）MCP 服务端所调用的本仓库采集实现**，将 **系统 Perfetto** 与 **应用侧 ATrace 数据** 合并为 **单个 `.perfetto` 文件**，使系统事件与应用栈在同一时间轴对齐。相对纯手工排障，有利于降低 **PerfettoSQL** 与脚本编写成本、由模型 **辅助选用工具并迭代查询**、在会话内 **多轮下钻**，并输出 **便于归档与对比的结构化结果**。复现实验与参数见 [docs/ATRACE_MCP_DEMO_SCENARIOS.md](docs/ATRACE_MCP_DEMO_SCENARIOS.md)。
 
 ## 特性
 
+- **基于 MCP 的轨迹分析自动化**（可选）：在 **Cursor** 中配置 **`atrace-mcp`**，以对话方式完成采集、加载及 **Perfetto SQL / 内置分析**（如 `analyze_startup`、`analyze_jank`）。**前置条件**：应用已集成 **ATrace SDK**，并按文档完成 MCP **采集侧依赖**部署（**`./gradlew deployMcp`**，详见 [`atrace-mcp/README.md`](atrace-mcp/README.md)）。适用于在 **系统与应用合一轨迹** 上快速定位问题，并支撑回归与报告（见 **快速开始** 中 **atrace-mcp 安装** / **Prompt 与常用话术**，以及下文 **Cursor MCP** 与 [效果样例](docs/ATRACE_MCP_DEMO_SCENARIOS.md)）
 - **高性能**：无锁环形缓冲区，极低采样开销
 - **可扩展**：插件化 Hook 架构，易于添加新采样点
 - **兼容性强**：`minSdk 21`，`compileSdk`/`targetSdk` 与当前工程一致（见 `gradle/libs.versions.toml`）；已针对多版本系统与 **ARM（arm64-v8a / armeabi-v7a）** 构建
 - **安全可靠**：符号动态解析，自适应版本变化
 - **多格式输出**：支持 Perfetto / Chrome Trace 格式
 - **易于集成**：一行代码接入，无侵入式设计
-- **Shadow Pause**：快速重启追踪，多次追踪性能提升约 40×（见下文与专题文档）
 
 ## 仓库结构
 
-| 路径 | 说明 |
-|------|------|
-| `atrace-api` | 对外稳定 API（无 Native / SandHook） |
-| `atrace-core` | 运行时：JNI、引擎、HTTP 服务、内置插件、Native CMake |
-| `atrace-tool` | PC 端：合并系统 Perfetto 与应用采样 |
-| `atrace-mcp` | Cursor / MCP：采集、Perfetto SQL、设备控制（Python） |
-| `sample` | 集成示例应用 |
-| `third_party/SandHook` | 源码集成的 SandHook 子工程（`settings.gradle.kts` 中 `sandhook-*`） |
+| 路径 | 说明 | 文档 |
+|------|------|------|
+| `atrace-api` | 对外稳定 API（无 Native / SandHook） | [工程指南 · §1 仓库模块地图](docs/ATRACE_ENGINEERING_GUIDE.md#1-仓库模块地图) |
+| `atrace-core` | 运行时：JNI、引擎、HTTP 服务、内置插件、Native CMake | [工程指南 · §1 仓库模块地图](docs/ATRACE_ENGINEERING_GUIDE.md#1-仓库模块地图) |
+| `atrace-tool` | 采集链路组件：供 MCP（及 CLI）合并系统 Perfetto 与应用侧 ATrace 数据 | [`atrace-tool/README.md`](atrace-tool/README.md) |
+| `atrace-mcp` | **Cursor / MCP 服务**：对话式采集编排、Perfetto SQL、设备与运行时控制（Python） | [`atrace-mcp/README.md`](atrace-mcp/README.md) |
+| `sample` | 集成示例应用 | [`sample/README.md`](sample/README.md) |
+| `third_party/SandHook` | 源码集成的 SandHook 子工程（`settings.gradle.kts` 中 `sandhook-*`） | [WatchList / 方法级插桩说明](docs/ARTMETHOD_WATCHLIST.md)（本仓库集成用法） |
 
 ## 环境要求
 
 - **JDK**：11+（与 `libs.versions.toml` 中 `javaVersion` 一致）
 - **Android 构建**：Android Studio 或命令行 Gradle；**AGP / Kotlin** 版本见根目录 `gradle/libs.versions.toml`
 - **NDK**：构建 `atrace-core` 原生代码时需要（版本见 `ndkVersion`）
-- **MCP / atrace-mcp**（可选）：**Python ≥ 3.10**、[uv](https://docs.astral.sh/uv/)；部分流程依赖 `./gradlew deployMcp` 生成的 `atrace-mcp/bin/atrace-tool.jar`
+- **MCP / `atrace-mcp`**（可选）：**Python ≥ 3.10**、[uv](https://docs.astral.sh/uv/)；**合并采集类工具**依赖 `./gradlew deployMcp` 写入 MCP 目录的采集 JAR（详见 [`atrace-mcp/README.md`](atrace-mcp/README.md)）
 
 ## 本地构建
 
@@ -39,13 +45,17 @@
 # 将 SDK 发布到本机 Maven（~/.m2）
 ./gradlew publishToMavenLocal
 
-# 构建 atrace-tool 并部署到 MCP 目录（独立分发 MCP 时用）
+# 为 MCP 准备合并采集等依赖并写入 atrace-mcp 目录（独立分发 MCP 时用）
 ./gradlew deployMcp
 ```
 
 示例应用使用说明见 [`sample/README.md`](sample/README.md)。
 
-## 架构
+## 快速开始
+
+### ATrace SDK 集成及架构说明
+
+**`atrace-api`** 与 **`atrace-core`** 分层如下；模块职责与数据流详见 [工程指南 · §1 仓库模块地图](docs/ATRACE_ENGINEERING_GUIDE.md#1-仓库模块地图)。
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -68,9 +78,7 @@
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-## 快速开始
-
-### 通过 JitPack 集成（`com.github.xcleans:TraceMind:v1.0.8`）
+#### 通过 JitPack 集成（`com.github.xcleans:TraceMind:v1.0.8`）
 
 在 **`settings.gradle.kts`**（或顶层 **`build.gradle.kts`** 的 `repositories`）中加入 **JitPack**，再在 app 模块依赖本仓库发布版本：
 
@@ -97,7 +105,7 @@ dependencies {
 
 更多发布与坐标说明见 [docs/PUBLISH.md](docs/PUBLISH.md)。
 
-### 应用内初始化
+#### 应用内初始化
 
 应用依赖 **`atrace-core`**（会传递依赖 **`atrace-api`**）。在 **`ATrace.init` 之前**必须注册引擎实现：在 **`Application.attachBaseContext`**（或等价时机）调用 **`TraceEngineCore.register()`**。若 Release 需零采样开销，可自行实现 **`TraceEngine`** 并通过 **`TraceEngineImpl.registerFactory`** 注册空实现，或不在 Release 包中依赖 **`atrace-core`**。
 
@@ -123,7 +131,6 @@ class MyApp : Application() {
         ATrace.init(this, initTraceEngine = {}) {
             bufferCapacity = 100_000
             sampleInterval = 1_000_000L       // 主线程间隔；其他线程默认为 5×（纳秒）
-            shadowPause = true
             enablePlugins(BinderPlugin, GCPlugin, LockPlugin)
         }
     }
@@ -140,77 +147,57 @@ val traceFile = ATrace.stopAndExport()
 
 可选：在 **`init` 的第二个参数**中调用 `TraceEngineCore.register()`（与 `sample` 模块写法一致），但 **`init` 会先于引擎创建执行该 lambda**，仍需保证在首次 `init` 前完成注册。
 
-### Shadow Pause 模式
+### atrace-mcp 安装
 
-Shadow Pause 在停止时保留 Hook 不卸载，显著加快多次追踪的启动：
+1. **运行环境**：**Python ≥ 3.10**；推荐安装 [uv](https://docs.astral.sh/uv/)。**ADB** 已配置且设备可连。
+2. **安装 Python 依赖**：在仓库内进入 **`atrace-mcp`**，执行 `uv run python run_mcp.py --help`（首次会拉取依赖）；或使用 pip + 虚拟环境。完整命令见 [atrace-mcp/README.md § 安装](atrace-mcp/README.md#安装)。
+3. **合并采集依赖**（`capture_trace` 等需要）：在**仓库根目录**执行 **`./gradlew deployMcp`**（或 `./gradlew :atrace-tool:deployToMcp`），将采集 JAR 写入 **`atrace-mcp/bin/`**。说明见 [`.cursor/README.md`](.cursor/README.md) 与 [atrace-mcp/README.md § 工程文档与 atrace-tool](atrace-mcp/README.md#工程文档与-atrace-tool)。
+4. **接入 Cursor**：本仓库 [`.cursor/mcp.json`](.cursor/mcp.json) 使用 `uv run --directory ${workspaceFolder}/atrace-mcp python run_mcp.py`；亦可按 [atrace-mcp/README.md § 接入 Cursor MCP](atrace-mcp/README.md#接入-cursor-mcp) 配置全局 **`~/.cursor/mcp.json`**。修改配置后须 **完全重启 Cursor**；在 Cursor **设置 → MCP** 中确认出现 `load_trace`、`capture_trace` 等工具。
+5. **详细排障与工具列表**：[atrace-mcp/README.md](atrace-mcp/README.md)（含 [§ 故障排查](atrace-mcp/README.md#故障排查)）。
 
-| 操作 | 正常模式 | Shadow Pause | 提升 |
-|------|---------|-------------|------|
-| 再次 Start | ~200ms | ~5ms | **40×** |
-| Stop | ~100ms | ~1ms | **100×** |
+### Prompt 与常用话术
 
-详见：[Shadow Pause 文档](docs/SHADOW_PAUSE.md)
+| 内容 | 文档位置 |
+|------|----------|
+| **内置 Prompt 注册表**（`scroll_performance_workflow`、`iterative_diagnosis` 等及适用场景） | [atrace-mcp/README.md § Prompt 说明（register_prompts）](atrace-mcp/README.md#prompt-说明register_prompts) |
+| **可复制中文话术**（直接粘贴到 Cursor 对话框） | [atrace-mcp/README.md § 常用话术集合](atrace-mcp/README.md#常用话术集合可直接粘贴到-cursor-对话框) |
+| **按问题类型选场景配置 + Prompt + 分析工具** | [atrace-mcp/README.md § Perfetto 场景配置](atrace-mcp/README.md#perfetto-场景配置) 内「问题类型 → 配置 + `capture_trace` + 分析」表 |
 
-```kotlin
-// 假定已调用 TraceEngineCore.register()
-ATrace.init(this, initTraceEngine = {}) {
-    shadowPause = true
-}
+**延伸阅读**：工程级数据流与工作流见 [docs/ATRACE_ENGINEERING_GUIDE.md](docs/ATRACE_ENGINEERING_GUIDE.md)；可复现实验见 [docs/ATRACE_MCP_DEMO_SCENARIOS.md](docs/ATRACE_MCP_DEMO_SCENARIOS.md)；索引页 [docs/ATRACE_MCP_AND_CONFIGS.md](docs/ATRACE_MCP_AND_CONFIGS.md)。
 
-// 或通过系统属性动态启用
-// adb shell setprop debug.atrace.shadowPause 1
-```
+## Cursor MCP：AI 辅助下的轨迹分析
 
-## 模块说明
+**能力与分工**  
+在 **Cursor** 中启用 **`atrace-mcp`** 后，轨迹相关任务可由 **大语言模型通过 MCP 工具链辅助编排**。**采集**由 **ATrace SDK**（应用进程内）与本仓库 **MCP 内置采集实现** 协同完成，得到含系统事件与应用方法栈、插件切片等的 **合并轨迹**；**分析**由 **`load_trace`**、**`analyze_*`**、**`execute_sql`** 等 MCP 工具承担。
 
-| 模块 | 说明 |
+**相对纯手工工作流的主要收益**
+
+| 维度 | 说明 |
 |------|------|
-| `atrace-api` | 稳定对外契约：无 Native、无 SandHook；供集成方编译期依赖 |
-| `atrace-core` | 完整运行时：JNI、`TraceEngineCore`、HTTP 服务、内置插件（`com.aspect.atrace.plugins`）、动态插桩后端 |
-| `atrace-tool` | PC 端合并系统 Perfetto 与应用采样 |
-| `atrace-mcp` | Cursor / MCP：采集、Perfetto SQL 分析、设备控制 |
-| `sample` | 集成示例（含 WatchList / 自动 hook 等） |
+| **端到端连贯** | 单次对话需求即可串联 **采集 → 加载 → 分析**，减少在多终端、Perfetto UI 与自建脚本之间的切换。 |
+| **查询门槛** | 由模型按意图选用 `capture_trace`、`analyze_*`、`execute_sql` 等工具，降低对 **Perfetto 表结构** 与 **SQL 模板** 的依赖。 |
+| **迭代排障** | 在同一会话中追加约束（进程、时间窗、锁 / Binder 等），便于 **多轮下钻**，贴近实际排障路径。 |
+| **可交付产出** | 易于获得表格化或 JSON 形态的中间结果，便于写入报告、做 **版本间对比** 或团队同步。 |
 
-### `atrace-api`（工程职责）
+**MCP 工具能力摘要**（前提：**应用已集成 ATrace**，且合并采集依赖已按文档就绪）
 
-- **`ATrace`**：对外唯一推荐入口（`start` / `stop` / `stopAndExport`、`capture`、`mark`、`beginSection` / `endSection`）。
-- **`TraceConfig` + `Builder`**：缓冲区容量、主/后台线程采样间隔、堆栈深度、时钟与输出格式（Perfetto / Chrome / RAW）、HTTP 开关、Shadow Pause、`ILibLoader` 等。
-- **`TraceEngine` 接口** 与 **`TraceEngineImpl`**：工厂由 **`atrace-core`**（或应用自实现的空引擎）在启动阶段 `registerFactory`，避免 API 模块反向依赖实现。
-- **`TracePlugin` / `PluginContext` / `SampleType`**：插件扩展协议；**`ALog`**：日志门面。
+- **采集类**（如 **`capture_trace`**）：由 MCP 服务 **编排** 设备与宿主机侧步骤，将 **系统 Perfetto**（如 ftrace、FrameTimeline、logcat）与 **ATrace SDK 应用侧采样** 合并为 **单个 `.perfetto`**，支持在统一时间轴上查看 Java/Native 栈、阻塞与插件切片；相较仅使用 adb 侧 Perfetto，通常对 **应用层可见性** 更完整。
+- **运行时控制**：经 ATrace SDK 提供的 **`TraceServer`**，可在 **不重新发包** 的前提下调整 **Binder / GC / Lock / IO** 等插件、采样参数、**WatchList / 精确 hook**、打标与抓栈，便于按场景扩展采集面。
+- **分析类**：**`execute_sql`**、**`analyze_startup`**、**`analyze_jank`** 等对轨迹做结构化查询；可按需选用 **heap**、**simpleperf** 等 MCP 工具（详见 [`atrace-mcp/README.md`](atrace-mcp/README.md)）。
 
-### `atrace-core`（工程职责）
-
-- **`TraceEngineCore`**：`TraceEngine` 的实现；合并 **`TraceProperties` 系统属性**与代码配置；调度插件与 Native 启停；导出二进制采样供 **`atrace-tool`** 解码。
-- **Native（CMake）**：栈采样、环形缓冲、按位批量安装系统级 Hook（Binder/GC/Lock/JNI/SO/Alloc/MessageQueue/IO 等与 `HookFlags` 对应）。
-- **Art 方法级追踪**：高版本 **`NativeArtHookBackend`**；低版本 **`SandHookDexMakerBackend`**（DexMaker 生成桩 + SandHook）；**`ClassLoadWatcher`** + **`ATrace.addWatchedRule` / `enableAutoHook`** 等完成 WatchList 与按需插桩（详见 [ArtMethod WatchList 与规则说明](docs/ARTMETHOD_WATCHLIST.md)）。
-- **`TraceServer` + `ServerManager`**：本地 HTTP（默认动态端口），供 **`atrace-tool` / MCP** 启停 trace、插件开关、采样间隔、WatchList、精确 hook、下载文件等。
-- **内置插件**：包名 **`com.aspect.atrace.plugins`**（如 `BinderPlugin`、`GCPlugin`、`LockPlugin`），与 Native 标志位联动。
-
-集成时通常只声明 **`implementation(project(":atrace-core"))`**（或等价 Maven 坐标），无需单独再依赖 `atrace-api`。
-
-## Cursor MCP（AI 客户端）
-
-本仓库在 [`.cursor/mcp.json`](.cursor/mcp.json) 中接入了 **atrace** MCP；打开本工程后修改配置需**完全重启 Cursor**（需安装 **uv**）。快速说明见 [`.cursor/README.md`](.cursor/README.md)；工具与故障排查见 [`atrace-mcp/README.md`](atrace-mcp/README.md)。
-
-**与 TraceMind 的关系**：在应用已集成 **ATrace**、且本机可跑 **`atrace-tool`** 的前提下，用 MCP 与 TraceMind **配合**时，可以更方便地用到上文链路里的能力，并往往 **多采一类「应用自定义」数据**：
-
-- **`capture_trace`**：把 **系统 Perfetto**（ftrace / FrameTimeline / logcat 等）与 **ATrace 应用侧采样** 打成 **一份合并 `.perfetto`**，在统一时间轴里看 Java/Native 栈、阻塞、插件切片等（单靠 adb perfetto 通常拿不到这份应用轨道）。
-- **运行时控制**：通过 HTTP 调 **`TraceServer`**，在不停包的情况下开关 **Binder/GC/Lock/IO** 等插件、改采样间隔、配 **WatchList / 精确 hook**、打标、抓栈等，便于针对场景扩采集面。
-- **分析工具**：**`execute_sql` / `analyze_startup` / `analyze_jank`** 等对合并 trace 做结构化查询；还可按需走 **heap / simpleperf** 等 MCP 工具（见 [`atrace-mcp/README.md`](atrace-mcp/README.md)）。
-
-因此 **配合使用 = 同一套 SDK 上，更容易把「系统视角 + 应用自定义轨道 + 交互式分析」串起来**；**仅把 ATrace 打进 APK 并不强制要装 MCP**。不用 Cursor 时，仍可用 **`atrace-tool` CLI**、[Perfetto UI](https://ui.perfetto.dev) 完成采集与查看（合并与高级分析步骤需自行等价完成）。
+**说明**：集成 ATrace **不依赖** MCP。若不使用 Cursor MCP，仍可使用 [Perfetto UI](https://ui.perfetto.dev) 与仓库内 [命令行采集文档](atrace-tool/README.md) 完成采集与查看；工作流需自行编排。
 
 ## 文档索引
 
 | 主题 | 文档 |
 |------|------|
-| 采集流程、atrace-tool、MCP 分析总览 | [docs/ATRACE_ENGINEERING_GUIDE.md](docs/ATRACE_ENGINEERING_GUIDE.md) |
+| 采集流程、MCP 与工具链总览 | [docs/ATRACE_ENGINEERING_GUIDE.md](docs/ATRACE_ENGINEERING_GUIDE.md) |
 | MCP 与场景配置 | [docs/ATRACE_MCP_AND_CONFIGS.md](docs/ATRACE_MCP_AND_CONFIGS.md)、[docs/configs/README.md](docs/configs/README.md) |
+| **MCP 轨迹分析自动化样例**（冷启动 / 锁竞争、参数、SQL、结论校验） | [docs/ATRACE_MCP_DEMO_SCENARIOS.md](docs/ATRACE_MCP_DEMO_SCENARIOS.md) |
 | WatchList / 方法级规则 | [docs/ARTMETHOD_WATCHLIST.md](docs/ARTMETHOD_WATCHLIST.md) |
 | 卡顿与 Perfetto | [docs/PERFETTO_JANK_GUIDE.md](docs/PERFETTO_JANK_GUIDE.md)、[docs/JANK_CHECKLIST.md](docs/JANK_CHECKLIST.md) |
-| Shadow Pause | [docs/SHADOW_PAUSE.md](docs/SHADOW_PAUSE.md) |
 | PC 工具 | [atrace-tool/README.md](atrace-tool/README.md) |
-| MCP 服务（工具列表、打包） | [atrace-mcp/README.md](atrace-mcp/README.md) |
+| **atrace-mcp**（安装、接入 Cursor、Prompt / 话术、工具列表、打包） | [atrace-mcp/README.md](atrace-mcp/README.md) |
 | SDK 发布 | [docs/PUBLISH.md](docs/PUBLISH.md) |
 | 示例应用 | [sample/README.md](sample/README.md) |
 

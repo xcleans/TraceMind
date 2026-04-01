@@ -1,6 +1,6 @@
 # ATrace 工程级指南：采集、工具链与 MCP 分析
 
-本文描述 **ATrace 仓库内各模块的职责边界**、**数据如何从设备到 Perfetto 文件**、**命令行工具 `atrace-tool` 与 `atrace-mcp` 的分工**，以及 **分析能力**落在哪一层。适合集成、扩展与排障时查阅。
+本文界定 **ATrace 仓库各模块职责**、**设备端到 `.perfetto` 文件的数据路径**、**`atrace-mcp` 与底层采集实现的衔接关系**，以及 **分析能力** 的分层归属；并说明 **命令行 / CI** 如何复用同一采集 JAR。适用于集成、扩展与故障排查。
 
 ---
 
@@ -10,8 +10,8 @@
 |------|------|------------|
 | **`atrace-api`** | 对外 Kotlin API（`ATrace`、`TraceConfig` 等） | 应用工程 |
 | **`atrace-core`** | 采样引擎、Native Hook、HTTP TraceServer、导出二进制采样 | 应用工程（依赖 api） |
-| **`atrace-tool`** | PC 端 **Fat JAR**：ADB + `record_android_trace` + 拉取应用采样 + **解码合并**为 `.perfetto`；子命令 `cpu` / `heap` / `devices` | 工程师 CLI、CI、**MCP 底层** |
-| **`atrace-mcp`** | Python MCP Server：`capture_trace` / SQL 分析 / simpleperf / heapprofd / 运行时控制 | Cursor、Claude Desktop 等 |
+| **`atrace-tool`** | **Fat JAR**（ADB、`record_android_trace`、拉取 ATrace 应用采样、解码合并为 `.perfetto`；含 `cpu` / `heap` / `devices` 等） | **MCP 合并采集时内部调用**；工程师 CLI、CI 亦可直接使用 |
+| **`atrace-mcp`** | Python MCP Server：`capture_trace`、SQL 分析、simpleperf、heapprofd、运行时控制等；**在 Cursor 等客户端中支持自然语言驱动的轨迹分析自动化** | Cursor、Claude Desktop 等 |
 | **`sample`** | 示例 App | 联调 |
 | **`docs/`** | 专题文档（卡顿、动态插桩等） | 全员 |
 
@@ -127,12 +127,16 @@ java -jar <atrace-tool.jar> [--json] <subcommand> ...
 2. `java -jar atrace-tool-*.jar capture -a <pkg> -t 10 -o out.perfetto`  
 3. 用 **Perfetto UI** 打开 `out.perfetto`，或自行跑 **trace_processor_shell**。
 
-### 5.2 Cursor / AI 辅助分析
+### 5.2 Cursor：基于 MCP 的轨迹分析自动化
+
+在 **Cursor** 中以对话串联 MCP 工具，可将 **采集 → 加载 → 查询 / 预置分析** 交由模型辅助编排，减少逐步手写 SQL 与 Shell 的工作量。相对纯手工，常见收益为：**端到端工具切换更少**、**Perfetto 表结构 / SQL 模板依赖更低**、**同一会话内多轮下钻**、**结构化输出便于对比与归档**（对比表见根目录 [README.md](../README.md)「Cursor MCP：AI 辅助下的轨迹分析」一节）。
 
 1. 配置 MCP（见根目录 [`.cursor/README.md`](../.cursor/README.md)）。  
 2. 使用 **`capture_trace`** 或 **`scroll_performance_workflow`** 得到 trace 路径。  
-3. **`load_trace`** → **`analyze_scroll_performance`** / **`execute_sql`** 迭代。  
-4. Trace Processor 启动失败时：按 MCP 提示用 **Perfetto UI** 打开同一文件（文件通常仍有效）。
+3. **`load_trace`** → **`analyze_scroll_performance`** / **`analyze_startup`** / **`execute_sql`** 迭代（工具调用宜**串行**，避免 Trace Processor 并发错误，见 §4.5）。  
+4. Trace Processor 启动失败时：按 MCP 提示用 **Perfetto UI** 打开同一文件（文件通常仍有效）。  
+
+**可复现实验与结论校验**（合并轨迹、冷启动、锁竞争 SQL）：见 [`ATRACE_MCP_DEMO_SCENARIOS.md`](ATRACE_MCP_DEMO_SCENARIOS.md)。
 
 ### 5.3 CI / 门禁
 
@@ -147,10 +151,10 @@ java -jar <atrace-tool.jar> [--json] <subcommand> ...
 |------|------|
 | [`atrace-tool/README.md`](../atrace-tool/README.md) | CLI 子命令、数据流、与 MCP 边界 |
 | [`atrace-mcp/README.md`](../atrace-mcp/README.md) | MCP 工具全集、`docs/configs` 场景配置、Prompt、打包分发、故障排查 |
+| [`ATRACE_MCP_DEMO_SCENARIOS.md`](ATRACE_MCP_DEMO_SCENARIOS.md) | **MCP 轨迹分析自动化**：样例参数、输出量级、冷启动 / 锁竞争说明与 SQL |
 | [`PERFETTO_JANK_GUIDE.md`](PERFETTO_JANK_GUIDE.md) | 卡顿与 FrameTimeline 分析 |
 | [`configs/README.md`](configs/README.md) | Perfetto 场景 `.txtpb` 索引 |
 | [`ARTMETHOD_WATCHLIST.md`](ARTMETHOD_WATCHLIST.md) | 动态插桩 / WatchList（`addWatchedRule` 等） |
-| [`ARTMETHOD_WATCHLIST.md`](ARTMETHOD_WATCHLIST.md) | ArtMethod 与规则说明 |
 | [Perfetto ATrace 与 ftrace](https://perfetto.dev/docs/getting-started/atrace) | 应用 slice 与系统 trace 同 buffer 的关系 |
 
 ---
@@ -163,4 +167,4 @@ java -jar <atrace-tool.jar> [--json] <subcommand> ...
 
 ---
 
-*本文随仓库演进更新；若与具体源码不一致，以 `atrace-tool`、`atrace-mcp` 实现为准。*
+*本文随仓库演进更新；若与源码行为不一致，以 `atrace-tool` 与 `atrace-mcp` 的实现为准。*

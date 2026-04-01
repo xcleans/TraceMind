@@ -24,3 +24,5 @@
 [**atrace-mcp/README.md**](../atrace-mcp/README.md) 中的 **「Perfetto 场景配置（docs/configs）」** 等章节。
 
 **MCP 资源 URI**（连接 `atrace` MCP 后由 AI 读取，内容与上表文件一致）：`atrace://configs/index`、`atrace://configs/readme`、`atrace://configs/startup`、`scroll`、`memory`、`binder`、`animation`、`full-template`。若 `atrace-mcp` 不在仓库内，可设置环境变量 **`ATRACE_DOCS_CONFIGS`** 指向本目录。
+
+**MCP 轨迹分析自动化样例**（冷启动 / 锁竞争、参数与 SQL）：[`docs/ATRACE_MCP_DEMO_SCENARIOS.md`](../ATRACE_MCP_DEMO_SCENARIOS.md)。
