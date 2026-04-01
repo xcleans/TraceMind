@@ -55,9 +55,11 @@ dependencies {
     // libs 目录下的 JAR 参与编译并打进 APK
     implementation(fileTree(mapOf("dir" to "src/main/libs", "include" to listOf("*.jar"))))
 
-    // ATrace SDK：debug 用 core 实现，release 用 noop 空实现（无 native 开销）
-    implementation(project(":atrace-api"))
-    implementation(project(":atrace-core"))
+    // ATrace SDK：通过 JitPack / Maven 等依赖
+//    implementation(project(":atrace-api"))
+//    implementation(project(":atrace-core"))
+    implementation("com.github.xcleans:TraceMind:v1.0.8")
+
 //    implementation("com.bytedance.btrace:rhea-inhouse:3.0.0")
 
     // AndroidX

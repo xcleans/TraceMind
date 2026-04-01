@@ -70,6 +70,35 @@
 
 ## 快速开始
 
+### 通过 JitPack 集成（`com.github.xcleans:TraceMind:v1.0.8`）
+
+在 **`settings.gradle.kts`**（或顶层 **`build.gradle.kts`** 的 `repositories`）中加入 **JitPack**，再在 app 模块依赖本仓库发布版本：
+
+```kotlin
+// settings.gradle.kts — dependencyResolutionManagement.repositories
+maven { url = uri("https://jitpack.io") }
+```
+
+```kotlin
+// app/build.gradle.kts
+dependencies {
+    implementation("com.github.xcleans:TraceMind:v1.0.8")
+}
+```
+
+若你使用的 JitPack 构建产物为**多模块**形式（`artifactId` 为 `atrace-api` / `atrace-core`），可改为显式声明（版本号与 Tag 对齐）：
+
+```kotlin
+dependencies {
+    implementation("com.github.xcleans.TraceMind:atrace-core:v1.0.8")
+    // 一般无需再写 atrace-api（由 core 传递依赖）；如需显式对齐可再加同版本 atrace-api
+}
+```
+
+更多发布与坐标说明见 [docs/PUBLISH.md](docs/PUBLISH.md)。
+
+### 应用内初始化
+
 应用依赖 **`atrace-core`**（会传递依赖 **`atrace-api`**）。在 **`ATrace.init` 之前**必须注册引擎实现：在 **`Application.attachBaseContext`**（或等价时机）调用 **`TraceEngineCore.register()`**。若 Release 需零采样开销，可自行实现 **`TraceEngine`** 并通过 **`TraceEngineImpl.registerFactory`** 注册空实现，或不在 Release 包中依赖 **`atrace-core`**。
 
 ```kotlin
@@ -162,6 +191,14 @@ ATrace.init(this, initTraceEngine = {}) {
 ## Cursor MCP（AI 客户端）
 
 本仓库在 [`.cursor/mcp.json`](.cursor/mcp.json) 中接入了 **atrace** MCP；打开本工程后修改配置需**完全重启 Cursor**（需安装 **uv**）。快速说明见 [`.cursor/README.md`](.cursor/README.md)；工具与故障排查见 [`atrace-mcp/README.md`](atrace-mcp/README.md)。
+
+**与 TraceMind 的关系**：在应用已集成 **ATrace**、且本机可跑 **`atrace-tool`** 的前提下，用 MCP 与 TraceMind **配合**时，可以更方便地用到上文链路里的能力，并往往 **多采一类「应用自定义」数据**：
+
+- **`capture_trace`**：把 **系统 Perfetto**（ftrace / FrameTimeline / logcat 等）与 **ATrace 应用侧采样** 打成 **一份合并 `.perfetto`**，在统一时间轴里看 Java/Native 栈、阻塞、插件切片等（单靠 adb perfetto 通常拿不到这份应用轨道）。
+- **运行时控制**：通过 HTTP 调 **`TraceServer`**，在不停包的情况下开关 **Binder/GC/Lock/IO** 等插件、改采样间隔、配 **WatchList / 精确 hook**、打标、抓栈等，便于针对场景扩采集面。
+- **分析工具**：**`execute_sql` / `analyze_startup` / `analyze_jank`** 等对合并 trace 做结构化查询；还可按需走 **heap / simpleperf** 等 MCP 工具（见 [`atrace-mcp/README.md`](atrace-mcp/README.md)）。
+
+因此 **配合使用 = 同一套 SDK 上，更容易把「系统视角 + 应用自定义轨道 + 交互式分析」串起来**；**仅把 ATrace 打进 APK 并不强制要装 MCP**。不用 Cursor 时，仍可用 **`atrace-tool` CLI**、[Perfetto UI](https://ui.perfetto.dev) 完成采集与查看（合并与高级分析步骤需自行等价完成）。
 
 ## 文档索引
 
