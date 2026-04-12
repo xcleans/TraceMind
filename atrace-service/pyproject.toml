@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "atrace-service"
+version = "0.1.0"
+description = "Standalone HTTP service wrapping TraceAnalyzer — no MCP required"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+keywords = ["android", "performance", "perfetto", "rest", "api"]
+
+dependencies = [
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.29.0",
+    "pydantic>=2.0.0",
+    "perfetto>=0.7.0",
+    "httpx>=0.25.0",    # optional: used by upstream atrace-mcp for ADB; kept for parity
+]
+
+[project.scripts]
+atrace-service = "atrace_service.main:start"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["atrace_service*"]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.25.0",
+]

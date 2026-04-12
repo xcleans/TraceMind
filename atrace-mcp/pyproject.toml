@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "atrace-mcp"
 version = "1.0.0"
-description = "ATrace MCP Server — AI-driven Android performance analysis for Cursor/Claude"
+description = "ATrace MCP Server + headless trace analysis CLI (same engine as MCP)"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
@@ -35,6 +35,7 @@ Issues = "https://github.com/xcleans/TraceMind/issues"
 # After `pip install atrace-mcp`, users can run `atrace-mcp` directly.
 [project.scripts]
 atrace-mcp = "run_mcp:main"
+atrace-analyze = "analyze_cli:main"
 
 # ── atrace-tool JAR: deployed by ./gradlew deployMcp ─────────────────────────
 # Before packaging this Python distribution, run:
@@ -46,6 +47,7 @@ atrace-mcp = "run_mcp:main"
 py-modules = [
     "server",
     "run_mcp",
+    "analyze_cli",
     "device_controller",
     "trace_analyzer",
     "tool_provisioner",

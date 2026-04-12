@@ -11,6 +11,203 @@ from fastmcp import FastMCP
 def register_prompts(mcp: FastMCP):
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # 0. Cursor 标准编排（中文）— 与 docs/ATRACE_PLATFORM_SCENARIOS.md 对齐
+    #    供 Cursor MCP Prompts 面板直接选用；工具须串行调用（勿并行 analyze_*）
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    @mcp.prompt
+    def platform_hub_zh() -> str:
+        """Cursor 内场景入口：标准编排 Prompt 一览（中文说明）。
+
+        无参数。在 Cursor → MCP → Prompts 中选本项，将本段发给模型即可。
+        """
+        return """# TraceMind / ATrace — Cursor 标准编排入口（中文）
+
+你是 **ATrace MCP** 助手。以下为仓库内 **已注册的标准编排 Prompt**（名称 = 函数名，在 Cursor **MCP Prompts** 中选用并填参）。
+
+## 选用表
+
+| 场景 | Prompt 名 | 必填参数 | 说明 |
+|------|-----------|----------|------|
+| **已有 trace，标准体检** | `cn_standard_review` | trace_path, process_name | 总览 → 帧质量 → 卡顿 → 主线程 Top → 下钻 |
+| **已有 trace，冷启动** | `cn_standard_startup` | trace_path, process_name | analyze_startup + 阻塞下钻 |
+| **已有 trace，滑动/卡顿/帧** | `cn_standard_jank` | trace_path, process_name | analyze_scroll_performance + analyze_jank + 最重帧下钻 |
+| **已有 trace，主线程阻塞** | `cn_standard_blocking` | trace_path, process_name | Binder/Lock/GC/IO 归因 + thread_states |
+| **冷启动：采集 + 分析** | `cn_standard_cold_start_capture` | package | list_devices → capture_trace(cold_start) → startup + jank |
+| **滑动：当前页采集 + 分析** | `scroll_performance_workflow` | package | 见英文 Prompt（inject_scroll）；已有文件可传 trace_path |
+| **自由提问** | `explore_issue` | trace_path, process_name, question | 单点深挖 |
+| **迭代诊断** | `iterative_diagnosis` | trace_path, process_name, symptom | 观测→假设→复采 |
+
+**英文等价**：`analyze_trace`、`startup_analysis`、`jank_analysis`、`blocking_analysis` 与上表逻辑相近，可按团队语言习惯选用。
+
+## 硬性规则
+
+1. **`load_trace` 之后** 的 `trace_overview`、`analyze_*`、`execute_sql` 等 **必须串行**（同一会话内不要并行调用多个会走 Trace Processor 的工具）。
+2. 工具名以 MCP 注册为准：`load_trace`、`trace_overview`、`analyze_scroll_performance`、`analyze_jank`、`analyze_startup`、`slice_children`、`call_chain`、`execute_sql`、`query_slices`、`capture_trace` 等。
+3. 文档：**`docs/ATRACE_PLATFORM_SCENARIOS.md`**（话术与报告模板）、**`docs/ATRACE_PLATFORM_CLI.md`**（无 MCP 时用 `atrace-analyze`）。
+
+若用户尚未说明场景，先问：**已有 trace 路径 + 包名**，还是 **需要现场采集**，再选用上表 Prompt。"""
+
+    @mcp.prompt
+    def cn_standard_review(trace_path: str, process_name: str) -> str:
+        """标准体检编排（中文）：已有 .perfetto，总览 + 帧 + 卡顿 + 主线程 Top + 下钻。
+
+        Cursor：选本 Prompt，填写 trace_path 与 process_name（包名）。
+        """
+        return f"""# 标准编排：性能体检（已有 trace）
+
+**轨迹文件**：`{trace_path}`  
+**目标进程**：`{process_name}`
+
+请严格按顺序 **串行** 调用 MCP 工具（不要并行）：
+
+## 步骤 1 — 加载与总览
+1. `load_trace(trace_path="{trace_path}", process_name="{process_name}")`
+2. `trace_overview(trace_path="{trace_path}")` — 记录时长、slice 规模、进程列表。
+
+## 步骤 2 — 帧与卡顿（有则看，报错则记录原因）
+3. `analyze_scroll_performance(trace_path="{trace_path}", process="{process_name}")`  
+   - 若失败或缺少 FrameTimeline，在报告中注明「本 trace 无帧时间线或 API 不满足」，跳过本步结论。
+4. `analyze_jank(trace_path="{trace_path}", process="{process_name}")`
+
+## 步骤 3 — 主线程慢 slice Top
+5. `execute_sql`，查询主线程耗时靠前的 slice（示例）：
+```sql
+SELECT s.name, s.dur/1e6 AS dur_ms, s.id AS slice_id, s.ts
+FROM slice s
+JOIN thread_track tt ON s.track_id = tt.id
+JOIN thread t ON tt.utid = t.utid
+JOIN process p ON t.upid = p.upid
+WHERE p.name LIKE '%{process_name}%'
+  AND t.is_main_thread = 1 AND s.dur > 0
+ORDER BY s.dur DESC
+LIMIT 20
+```
+
+## 步骤 4 — 下钻（选 2～5 个最可疑 slice）
+6. 对 **Choreographer#doFrame**、**animation**、**RV Prefetch**、**inflate**、**Binder/Lock** 等，依次 `slice_children(slice_id=...)`；必要时 `call_chain(slice_id=...)`。
+
+## 步骤 5 — 输出报告（中文）
+按项目模板输出：**摘要**、**关键数据**（verdict / jank 条数 / Top slice）、**根因假设**、**优化建议**、**复现信息**（本 trace 路径）。"""
+
+    @mcp.prompt
+    def cn_standard_startup(trace_path: str, process_name: str) -> str:
+        """冷启动分析编排（中文）：analyze_startup + 下钻阻塞与启动阶段。"""
+        return f"""# 标准编排：冷启动分析（已有 trace）
+
+**轨迹**：`{trace_path}`  
+**包名**：`{process_name}`
+
+## 串行步骤
+1. `load_trace(trace_path="{trace_path}", process_name="{process_name}")`
+2. `trace_overview(trace_path="{trace_path}")`
+3. `analyze_startup(trace_path="{trace_path}", process="{process_name}")` — 保存 `blocking_calls`、`top_main_thread_slices`。
+4. 对 **bindApplication**、**OpenDex**、**inflate**、**blocking_calls 前 5 条** 中的 slice，用 `slice_children` / `call_chain` 下钻（有 `slice_id` 时优先用返回中的 id）。
+5. 若存在多进程（如 `:plugin`），在 SQL 或 `query_slices` 中对比各进程主线程 Top。
+
+## 输出（中文）
+- 启动阶段时间线摘要  
+- Top 问题与证据（slice 名、ms、slice_id）  
+- 阻塞类项与优化优先级  
+
+参考（可选）：同仓库 `startup_analysis` Prompt 内嵌 SQL 可补充执行。"""
+
+    @mcp.prompt
+    def cn_standard_jank(trace_path: str, process_name: str) -> str:
+        """滑动/卡顿/帧质量编排（中文）：已有 trace，优先 FrameTimeline + jank + 下钻。"""
+        return f"""# 标准编排：滑动与帧质量（已有 trace）
+
+**轨迹**：`{trace_path}`  
+**包名**：`{process_name}`
+
+## 串行步骤
+1. `load_trace(trace_path="{trace_path}", process_name="{process_name}")`
+2. `analyze_scroll_performance(trace_path="{trace_path}", process="{process_name}")` — 重点 **verdict**、**worst_frames**、**frame_quality**、**blocking_calls**。
+3. `analyze_jank(trace_path="{trace_path}", process="{process_name}")`
+4. 取 **worst_frames** 或 **jank_frames** 中 1～3 个最重时刻，对同一时间段内主线程相关 slice 做 `slice_children`（若只有 ts，可用 `execute_sql` 按 ts 窗口查 slice）。
+5. 可选：`query_slices(trace_path=..., process="{process_name}", main_thread_only=True, min_dur_ms=8, limit=30)`
+
+## 输出（中文）
+- 帧质量结论（No Jank / Buffer Stuffing / Self Jank 等占比）  
+- 最差帧与下钻到的子 slice（animation / traversal / RV 等）  
+- 可落地的优化方向（列表/布局/预取/binder 等）  
+
+参考：`jank_analysis` Prompt 内 RenderThread SQL 可作为补充。"""
+
+    @mcp.prompt
+    def cn_standard_blocking(trace_path: str, process_name: str) -> str:
+        """主线程阻塞归因编排（中文）：Binder/Lock/GC/IO + 调度。"""
+        return f"""# 标准编排：主线程阻塞分析（已有 trace）
+
+**轨迹**：`{trace_path}`  
+**包名**：`{process_name}`
+
+## 串行步骤
+1. `load_trace(trace_path="{trace_path}", process_name="{process_name}")`
+2. `execute_sql` — 主线程上 Binder/Lock/GC/IO/monitor/contention 等长 slice（示例）：
+```sql
+SELECT s.name, s.dur/1e6 AS dur_ms, s.id AS slice_id, s.ts
+FROM slice s
+JOIN thread_track tt ON s.track_id = tt.id
+JOIN thread t ON tt.utid = t.utid
+JOIN process p ON t.upid = p.upid
+WHERE p.name LIKE '%{process_name}%'
+  AND t.is_main_thread = 1 AND s.dur > 2000000
+  AND (s.name LIKE '%Binder%' OR s.name LIKE '%Lock%' OR s.name LIKE '%GC%'
+       OR s.name LIKE '%IO%' OR s.name LIKE '%Monitor%' OR s.name LIKE '%contention%')
+ORDER BY s.dur DESC
+LIMIT 25
+```
+3. `thread_states(trace_path="{trace_path}", thread_name="{process_name}")`（或主线程实际线程名）— 若工具参数为 thread 名子串，填应用主线程名。
+4. 对最长几条阻塞 slice 做 `slice_children` / `call_chain`。
+
+## 输出（中文）
+- 阻塞类型分布与最严重实例  
+- 是否与锁/跨进程相关  
+- 建议（减少主线程同步等待、拆 IO、调整锁粒度等）  
+
+也可直接复用英文 Prompt `blocking_analysis` 中的 SQL 作为补充。"""
+
+    @mcp.prompt
+    def cn_standard_cold_start_capture(
+        package: str,
+        duration_seconds: int = 20,
+        serial: str = "",
+    ) -> str:
+        """冷启动标准编排（中文）：设备采集合并 trace + 启动/卡顿分析。
+
+        需设备已连 ADB、应用已集成 ATrace。填写 package；可选 duration_seconds、serial。
+        """
+        serial_hint = (
+            f"\n多设备时在相关工具上传入 `serial=\"{serial}\"`。\n"
+            if serial.strip()
+            else ""
+        )
+        return f"""# 标准编排：冷启动采集 + 分析
+
+**包名**：`{package}`  
+**建议采集时长**：{duration_seconds}s{serial_hint}
+
+## Phase A — 采集（串行）
+1. `list_devices` — 确认设备在线。
+2. `query_app_status` — 确认 ATrace HTTP 可达（必要时端口转发）。
+3. `capture_trace(package="{package}", duration_seconds={duration_seconds}, cold_start=True, inject_scroll=False)` — **阻塞直至结束**；从返回 JSON 取 **`merged_trace`** 路径。
+
+## Phase B — 分析（串行，路径用上面的 merged_trace）
+4. `load_trace(trace_path=<merged_trace>, process_name="{package}")`
+5. `trace_overview(trace_path=<merged_trace>)`
+6. `analyze_startup(trace_path=<merged_trace>, process="{package}")`
+7. `analyze_jank(trace_path=<merged_trace>, process="{package}")`
+8. 对 **analyze_startup** 中阻塞与慢启动 slice **slice_children** 下钻。
+
+## 输出（中文）
+- 采集参数与 **merged_trace** 路径（便于归档）  
+- 启动与首帧问题摘要  
+- 下一步优化建议  
+
+**注意**：不要用 `cold_start=True` 做「当前页滑动」场景；滑动请用 `scroll_performance_workflow`。"""
+
+    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # 1. 通用分析入口
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

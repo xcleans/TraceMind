@@ -2,15 +2,30 @@
 
 ## 产品说明
 
+### 项目定位与目标
+
+**TraceMind（ATrace 工具链 + MCP）** 把 Android 端性能问题从「只有少数人会看 trace 的专家活」变成 **可重复、可协作、可被 AI 辅助的标准流程**，端到端覆盖三件事：
+
+| 环节 | 要解决的问题 | 本仓库中的落点 |
+|------|----------------|----------------|
+| **采集** | 系统侧与应用侧数据割裂、对不齐 | **系统 Perfetto + 应用 ATrace** 经 **`atrace-tool`** 合并为 **单个 `.perfetto`**，同一时间轴对齐调度、帧、logcat 与方法栈 / 插件切片 |
+| **分析** | Perfetto UI 与 SQL 门槛高、结论难复用 | **`atrace-mcp` / `trace_analyzer`** 提供 **结构化分析**（启动、滑动与帧质量、卡顿粗查等）与 **PerfettoSQL 下钻**；在 **Cursor** 里通过 **MCP** 由模型 **串联采集、加载、工具与查询**，多轮归因 |
+| **与研发工作流衔接** | 结论口头化、难留档、难对比 | **可归档的 trace + 结构化结果**；**[平台：场景编排 · AI 话术 · 分析报告](docs/ATRACE_PLATFORM_SCENARIOS.md)**、**[场景复现与样例](docs/ATRACE_MCP_DEMO_SCENARIOS.md)**、**[工程指南](docs/ATRACE_ENGINEERING_GUIDE.md)** 降低「一人一策」；便于随 **工单 / PR / 版本** 传递证据链 |
+
+**能力边界（诚实表述）**：深度结论仍须结合业务代码解读；**AI/MCP** 负责降低操作成本与加速下钻，**增强轨迹** 负责补齐跨层证据。  
+**可持续完善的方向**（与「平台化」一致）：**离线标准输出** 已提供命令行 **`atrace-analyze`**（JSON / `bundle`，与 MCP 同源 `TraceAnalyzer`，见 [`docs/ATRACE_PLATFORM_CLI.md`](docs/ATRACE_PLATFORM_CLI.md)）；后续可补场景编排配置、**版本间指标对比与门禁**、与 **Cursor CLI** / CI 的固定流水线，使「标准流程」不绑定单一 IDE 交互方式。
+
+---
+
 - **AI 自动化 Trace 分析（Cursor + MCP）**  
-在 **Cursor** 中接入 **`atrace-mcp`** 后，以 **自然语言驱动 MCP 工具**，将 **Trace 分析全流程自动化**：**设备侧采集 → 轨迹合并 → 加载 → Perfetto SQL / 内置分析** 由模型 **按意图串联**，减少手工脚本、命令行与 Perfetto UI 之间的反复切换；由模型 **自动选用工具、编写与修正查询**，在 **同一会话内多轮下钻**，并输出 **便于归档与版本对比的结构化结果**。复现实验与参数见 [docs/ATRACE_MCP_DEMO_SCENARIOS.md](docs/ATRACE_MCP_DEMO_SCENARIOS.md)。
+在 **Cursor** 中接入 **`atrace-mcp`** 后，以 **自然语言驱动 MCP 工具**，将 **Trace 分析全流程自动化**：**设备侧采集 → 轨迹合并 → 加载 → Perfetto SQL / 内置分析** 由模型 **按意图串联**，减少手工脚本、命令行与 Perfetto UI 之间的反复切换；由模型 **自动选用工具、编写与修正查询**，在 **同一会话内多轮下钻**，并输出 **便于归档与版本对比的结构化结果**。**常用场景的工具编排、可复制话术与报告模板** 见 [docs/ATRACE_PLATFORM_SCENARIOS.md](docs/ATRACE_PLATFORM_SCENARIOS.md)；复现实验与参数见 [docs/ATRACE_MCP_DEMO_SCENARIOS.md](docs/ATRACE_MCP_DEMO_SCENARIOS.md)。
 
 - **增强Trace（系统 Perfetto + 应用 ATrace 合一）**  
 上述自动化建立在 **「增强轨迹」** 之上：**（1）应用内 ATrace SDK** 提供 **应用侧增强采集**（方法栈、内置插件切片、**`TraceServer`** 远程启停 / 采样与插件调参 / 打标与抓栈等）；**（2）MCP 服务端调用的本仓库合并采集实现** 将 **系统 Perfetto**（调度、帧、Binder、logcat 等）与 **ATrace 应用轨道** 合并为 **单个 `.perfetto` 文件**，使 **系统事件与应用调用栈、阻塞与自定义切片** 在 **同一时间轴** 对齐。相对仅使用 adb 侧系统采集，**应用层可见性与可分析维度显著增强**，也更利于 AI 做 **跨层关联与结论归纳**。
 
 ## 特性
 
-- **AI 自动化 Trace 分析 + 增强轨迹**（可选，**Cursor** + **`atrace-mcp`**）：对话驱动 **全流程自动化分析**；依赖 **系统 + 应用合一 `.perfetto`** 的 **增强轨迹**（见上文产品说明）。**前置条件**：应用已集成 **ATrace SDK**，并完成 MCP **采集侧依赖**（**`./gradlew deployMcp`**，详见 [`atrace-mcp/README.md`](atrace-mcp/README.md)）。步骤与话术见 **快速开始** 中 **atrace-mcp 安装** / **Prompt 与常用话术**，概览见下文 **Cursor MCP** 与 [效果样例](docs/ATRACE_MCP_DEMO_SCENARIOS.md)
+- **AI 自动化 Trace 分析 + 增强轨迹**（可选，**Cursor** + **`atrace-mcp`**）：对话驱动 **全流程自动化分析**；依赖 **系统 + 应用合一 `.perfetto`** 的 **增强轨迹**（见上文产品说明）。**前置条件**：应用已集成 **ATrace SDK**，并完成 MCP **采集侧依赖**（**`./gradlew deployMcp`**，详见 [`atrace-mcp/README.md`](atrace-mcp/README.md)）。**平台级场景编排、话术、报告** 见 [`docs/ATRACE_PLATFORM_SCENARIOS.md`](docs/ATRACE_PLATFORM_SCENARIOS.md)；步骤与话术亦见 **快速开始** 与 [效果样例](docs/ATRACE_MCP_DEMO_SCENARIOS.md)
 - **高性能**：无锁环形缓冲区，极低采样开销
 - **可扩展**：插件化 Hook 架构，易于添加新采样点
 - **兼容性强**：`minSdk 21`，`compileSdk`/`targetSdk` 与当前工程一致（见 `gradle/libs.versions.toml`）；已针对多版本系统与 **ARM（arm64-v8a / armeabi-v7a）** 构建

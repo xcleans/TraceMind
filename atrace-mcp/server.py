@@ -15,13 +15,14 @@ Usage:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import subprocess
 import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 from fastmcp import FastMCP
 
@@ -191,6 +192,49 @@ def _spawn_scroll_during_capture(
     ).start()
 
 
+def _init_atrace_mcp_logging() -> logging.Logger:
+    """Diagnostics for MCP tool failures (trace_path / JSON / load).
+
+    - **ATRACE_MCP_LOG_LEVEL**: DEBUG|INFO|WARNING|ERROR (default WARNING). Use DEBUG
+      to see embedded-json parse attempts on ``trace_path``.
+    - **ATRACE_MCP_LOG_FILE**: if set, **also** append logs to this file (utf-8);
+      stderr handler is always attached.
+
+    Logs go to **stderr** (stdio MCP keeps stdout for JSON-RPC only).
+    Note: if the MCP **client** builds invalid JSON (e.g. unquoted path in an object),
+    the request never reaches this process — enable client-side / bridge logging for that.
+    """
+    log = logging.getLogger("atrace.mcp")
+    if log.handlers:
+        return log
+    level_name = os.environ.get("ATRACE_MCP_LOG_LEVEL", "DEBUG").strip().upper()
+    level = getattr(logging, level_name, logging.WARNING)
+    log.setLevel(level)
+    fmt = logging.Formatter("%(asctime)s %(levelname)s [atrace.mcp] %(message)s")
+    sh = logging.StreamHandler(sys.stderr)
+    sh.setFormatter(fmt)
+    log.addHandler(sh)
+    log_path = os.environ.get("ATRACE_MCP_LOG_FILE", "/tmp/atrace-mcp.log").strip()
+    if log_path:
+        fh = logging.FileHandler(log_path, encoding="utf-8")
+        fh.setFormatter(fmt)
+        log.addHandler(fh)
+    return log
+
+
+LOG = _init_atrace_mcp_logging()
+
+
+def _safe_repr(value: Any, limit: int = 400) -> str:
+    try:
+        text = repr(value)
+    except Exception:
+        text = f"<repr failed type={type(value)!r}>"
+    if len(text) > limit:
+        return f"{text[: limit - 3]}..."
+    return text
+
+
 mcp = FastMCP(
     name="ATrace",
     instructions="""You are an Android performance analysis agent.
@@ -284,25 +328,149 @@ TRACE_VIEWER_HINT = (
 )
 
 
+def _normalize_trace_path_arg(trace_path: Any) -> str | None:
+    """Coerce MCP/tool callers' trace_path into a filesystem string.
+
+    Handles:
+    - str / Path
+    - dict-shaped payloads ({\"trace_path\": \"...\"}, path, tracePath)
+    - a single string that itself is JSON containing trace_path (some clients bundle args)
+    """
+    if trace_path is None:
+        return None
+    if isinstance(trace_path, Path):
+        return str(trace_path).strip() or None
+    if isinstance(trace_path, Mapping):
+        inner = (
+            trace_path.get("trace_path")
+            or trace_path.get("path")
+            or _maybe_get(trace_path, "tracePath")
+        )
+        return _normalize_trace_path_arg(inner)
+    if not isinstance(trace_path, str):
+        trace_path = str(trace_path)
+    s = trace_path.strip()
+    if not s:
+        return None
+    if s.startswith("{") and ("trace_path" in s or '"path"' in s or "'path'" in s):
+        try:
+            obj = json.loads(s)
+            if isinstance(obj, dict):
+                return _normalize_trace_path_arg(obj)
+        except json.JSONDecodeError as e:
+            # Cursor / some MCP bridges occasionally emit pseudo-JSON, e.g.
+            # {"trace_path": /tmp/a.perfetto} (path unquoted) → client-side parse error;
+            # if a string form still reaches us, log for operators.
+            LOG.warning(
+                "trace_path embedded JSON parse failed: %s | snippet=%s | hint=%s",
+                e,
+                _safe_repr(s[:240], limit=240),
+                "ensure trace_path value is a quoted JSON string, or use load_trace_payload",
+            )
+            LOG.debug("trace_path full string after failed JSON: %s", _safe_repr(s, limit=2000))
+    return s
+
+
+def _maybe_get(mapping: Mapping[Any, Any], key: str) -> Any:
+    try:
+        return mapping[key]
+    except Exception:
+        for k, v in mapping.items():
+            if isinstance(k, str) and k.lower() == key.lower():
+                return v
+        return None
+
+
+def _normalize_optional_process_name(process_name: Any) -> str | None:
+    if process_name is None:
+        return None
+    if isinstance(process_name, Mapping):
+        inner = process_name.get("process_name") or _maybe_get(process_name, "process")
+        return _normalize_optional_process_name(inner)
+    if not isinstance(process_name, str):
+        process_name = str(process_name)
+    s = process_name.strip()
+    return s or None
+
+
+def _resolve_trace_path(trace_path: str | None) -> tuple[str | None, str | None]:
+    """Resolve trace path from explicit arg, env fallback, or loaded sessions.
+
+    Returns:
+        (resolved_path_or_none, source_description_or_none)
+    """
+    normalized = _normalize_trace_path_arg(trace_path)
+    if normalized:
+        return normalized, "argument"
+
+    env_hint = os.environ.get("ATRACE_DEFAULT_TRACE_PATH", "").strip()
+    if env_hint:
+        return env_hint, "env:ATRACE_DEFAULT_TRACE_PATH"
+
+    loaded = list(getattr(analyzer, "_sessions", {}).keys())
+    if len(loaded) == 1:
+        return loaded[0], "loaded-session"
+
+    return None, None
+
+
+def _require_trace_path(trace_path: str | None) -> tuple[str | None, str | None]:
+    """Return resolved trace path, or a user-facing error message."""
+    resolved, source = _resolve_trace_path(trace_path)
+    if resolved:
+        LOG.debug(
+            "trace_path ok source=%s path=%s",
+            source,
+            _safe_repr(resolved, limit=300),
+        )
+        return resolved, None
+    sessions = list(getattr(analyzer, "_sessions", {}).keys())
+    env_set = bool(os.environ.get("ATRACE_DEFAULT_TRACE_PATH", "").strip())
+    LOG.warning(
+        "trace_path missing: raw_type=%s raw=%s session_count=%s "
+        "env_ATRACE_DEFAULT_TRACE_PATH=%s",
+        type(trace_path).__name__,
+        _safe_repr(trace_path),
+        len(sessions),
+        env_set,
+    )
+    if sessions:
+        LOG.warning(
+            "loaded sessions (pass trace_path or load exactly one): %s",
+            [_safe_repr(p, 120) for p in sessions[:8]],
+        )
+    else:
+        LOG.warning(
+            "no loaded trace sessions; call load_trace / load_trace_payload first, "
+            "or set ATRACE_DEFAULT_TRACE_PATH"
+        )
+    return None, (
+        "Error: missing required argument `trace_path`.\n"
+        "Pass `trace_path` explicitly, or set env `ATRACE_DEFAULT_TRACE_PATH`, "
+        "or ensure exactly one trace session is already loaded."
+    )
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Query Tools — Observe and explore trace data
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
-@mcp.tool
-def load_trace(trace_path: str, process_name: str | None = None) -> str:
-    """Load a Perfetto trace file for analysis.
-    Must be called before using other query/analysis tools.
-
-    Args:
-        trace_path: Path to .pb or .perfetto trace file
-        process_name: Optional default process name for subsequent queries
-    """
+def _load_trace_run(resolved: str, process_name: str | None, source: str | None) -> str:
     try:
-        path = analyzer.load(trace_path, process_name)
+        path = analyzer.load(resolved, process_name)
         overview = analyzer.overview(path)
+        if source and source != "argument":
+            overview = {**overview, "trace_path_source": source}
         return json.dumps(overview, indent=2, default=str)
     except Exception as e:
+        LOG.exception(
+            "trace load failed path=%s process_name=%s source=%s err=%s",
+            _safe_repr(resolved, limit=400),
+            _safe_repr(process_name, limit=120),
+            source,
+            e,
+        )
         msg = f"Error loading trace: {e}"
         if "Trace processor" in str(e) or "failed to start" in str(e).lower():
             msg += TRACE_VIEWER_HINT
@@ -310,15 +478,83 @@ def load_trace(trace_path: str, process_name: str | None = None) -> str:
 
 
 @mcp.tool
-def trace_overview(trace_path: str) -> str:
+def load_trace(trace_path: str | None = None, process_name: str | None = None) -> str:
+    """Load a Perfetto trace file for analysis.
+    Must be called before using other query/analysis tools.
+
+    Args:
+        trace_path: Path to .pb or .perfetto trace file (optional when env/session fallback is available).
+            Must be a **JSON string** in tool arguments (e.g. \"/tmp/a.perfetto\"), not an unquoted path.
+        process_name: Optional default process name for subsequent queries
+
+    If the MCP client serializes `trace_path` incorrectly, use **load_trace_payload** instead.
+    """
+    trace_path = _normalize_trace_path_arg(trace_path)
+    process_name = _normalize_optional_process_name(process_name)
+    resolved, source = _resolve_trace_path(trace_path)
+    if not resolved:
+        LOG.warning(
+            "load_trace missing path after normalize: raw=%s process_name=%s",
+            _safe_repr(trace_path),
+            _safe_repr(process_name, limit=120),
+        )
+        return (
+            "Error loading trace: missing required argument `trace_path`.\n"
+            "Pass `trace_path` explicitly (as a quoted JSON string), or call load_trace_payload "
+            "with one JSON object string, or set env `ATRACE_DEFAULT_TRACE_PATH`, "
+            "or ensure exactly one trace session is already loaded."
+        )
+    return _load_trace_run(resolved, process_name, source)
+
+
+@mcp.tool
+def load_trace_payload(payload: str) -> str:
+    """Load a trace when multi-argument JSON quoting is flaky (e.g. Cursor / some MCP bridges).
+
+    Pass a single string whose value is **valid JSON object**, for example::
+        {"trace_path": "/private/tmp/atrace/app.perfetto", "process_name": "com.example.app"}
+
+    Keys: ``trace_path`` (required), ``process_name`` (optional). Aliases: ``path``, ``tracePath``.
+    """
+    raw = payload.strip() if isinstance(payload, str) else str(payload)
+    try:
+        obj = json.loads(raw)
+    except json.JSONDecodeError as e:
+        LOG.warning(
+            "load_trace_payload JSON decode failed: %s | prefix=%s | hint=%s",
+            e,
+            _safe_repr(raw[:320], limit=320),
+            'paths must be double-quoted, e.g. {"trace_path":"/path/file.perfetto"}',
+        )
+        return (
+            f"Error: payload must be a JSON object: {e}\n"
+            'Example: {"trace_path":"/path/trace.perfetto","process_name":"com.example"}'
+        )
+    if not isinstance(obj, dict):
+        return 'Error: payload must be a JSON object with a "trace_path" field.'
+    resolved = _normalize_trace_path_arg(obj)
+    if not resolved:
+        return (
+            'Error: payload must include "trace_path" (or "path"). '
+            f"Keys seen: {list(obj.keys())}"
+        )
+    process_name = _normalize_optional_process_name(obj.get("process_name"))
+    return _load_trace_run(resolved, process_name, "argument")
+
+
+@mcp.tool
+def trace_overview(trace_path: str | None = None) -> str:
     """Get a high-level overview of a loaded trace:
     duration, process list, thread count, slice count.
 
     Args:
         trace_path: Path to the loaded trace file
     """
+    resolved, err = _require_trace_path(trace_path)
+    if err:
+        return err
     try:
-        result = analyzer.overview(trace_path)
+        result = analyzer.overview(resolved)
         return json.dumps(result, indent=2, default=str)
     except Exception as e:
         return f"Error: {e}"
@@ -326,7 +562,7 @@ def trace_overview(trace_path: str) -> str:
 
 @mcp.tool
 def query_slices(
-    trace_path: str,
+    trace_path: str | None = None,
     process: str | None = None,
     thread: str | None = None,
     name_pattern: str | None = None,
@@ -346,9 +582,12 @@ def query_slices(
         limit: Max results (default 20)
         main_thread_only: If True, only Android/Java main thread (is_main_thread=1)
     """
+    resolved, err = _require_trace_path(trace_path)
+    if err:
+        return err
     try:
         rows = analyzer.top_slices(
-            trace_path,
+            resolved,
             process,
             thread,
             name_pattern,
@@ -362,7 +601,7 @@ def query_slices(
 
 
 @mcp.tool
-def execute_sql(trace_path: str, sql: str) -> str:
+def execute_sql(trace_path: str | None = None, sql: str = "") -> str:
     """Execute arbitrary PerfettoSQL on a loaded trace.
     Use this for custom exploration when pre-built tools aren't enough.
 
@@ -387,8 +626,13 @@ def execute_sql(trace_path: str, sql: str) -> str:
         trace_path: Path to the loaded trace file
         sql: PerfettoSQL query string
     """
+    if not sql.strip():
+        return "SQL Error: missing required argument `sql`."
+    resolved, err = _require_trace_path(trace_path)
+    if err:
+        return err
     try:
-        rows = analyzer.query(trace_path, sql)
+        rows = analyzer.query(resolved, sql)
         if len(rows) > 100:
             return json.dumps(
                 {"row_count": len(rows), "rows": rows[:100],
@@ -401,7 +645,7 @@ def execute_sql(trace_path: str, sql: str) -> str:
 
 
 @mcp.tool
-def call_chain(trace_path: str, slice_id: int) -> str:
+def call_chain(trace_path: str | None = None, slice_id: int = 0) -> str:
     """Get the full call chain (ancestors) for a specific slice.
     Use after finding an interesting slice via query_slices.
 
@@ -409,15 +653,20 @@ def call_chain(trace_path: str, slice_id: int) -> str:
         trace_path: Path to the loaded trace file
         slice_id: The slice ID to trace upward from
     """
+    if slice_id <= 0:
+        return "Error: missing or invalid required argument `slice_id`."
+    resolved, err = _require_trace_path(trace_path)
+    if err:
+        return err
     try:
-        rows = analyzer.call_chain(trace_path, slice_id)
+        rows = analyzer.call_chain(resolved, slice_id)
         return json.dumps(rows, indent=2, default=str)
     except Exception as e:
         return f"Error: {e}"
 
 
 @mcp.tool
-def slice_children(trace_path: str, slice_id: int, limit: int = 20) -> str:
+def slice_children(trace_path: str | None = None, slice_id: int = 0, limit: int = 20) -> str:
     """Get direct children of a slice, sorted by duration.
     Use to drill down into what a slow function is doing.
 
@@ -426,8 +675,13 @@ def slice_children(trace_path: str, slice_id: int, limit: int = 20) -> str:
         slice_id: Parent slice ID
         limit: Max results (default 20)
     """
+    if slice_id <= 0:
+        return "Error: missing or invalid required argument `slice_id`."
+    resolved, err = _require_trace_path(trace_path)
+    if err:
+        return err
     try:
-        rows = analyzer.children(trace_path, slice_id, limit)
+        rows = analyzer.children(resolved, slice_id, limit)
         return json.dumps(rows, indent=2, default=str)
     except Exception as e:
         return f"Error: {e}"
@@ -435,8 +689,8 @@ def slice_children(trace_path: str, slice_id: int, limit: int = 20) -> str:
 
 @mcp.tool
 def thread_states(
-    trace_path: str,
-    thread_name: str,
+    trace_path: str | None = None,
+    thread_name: str = "",
     ts_start: int = 0,
     ts_end: int = 0,
 ) -> str:
@@ -449,8 +703,13 @@ def thread_states(
         ts_start: Optional start timestamp (nanoseconds)
         ts_end: Optional end timestamp (nanoseconds)
     """
+    if not thread_name.strip():
+        return "Error: missing required argument `thread_name`."
+    resolved, err = _require_trace_path(trace_path)
+    if err:
+        return err
     try:
-        rows = analyzer.thread_states(trace_path, thread_name, ts_start, ts_end)
+        rows = analyzer.thread_states(resolved, thread_name, ts_start, ts_end)
         return json.dumps(rows, indent=2, default=str)
     except Exception as e:
         return f"Error: {e}"
@@ -462,7 +721,7 @@ def thread_states(
 
 
 @mcp.tool
-def analyze_startup(trace_path: str, process: str | None = None) -> str:
+def analyze_startup(trace_path: str | None = None, process: str | None = None) -> str:
     """Analyze app cold startup performance.
     Returns top slow functions, blocking calls, and startup phases.
 
@@ -470,15 +729,18 @@ def analyze_startup(trace_path: str, process: str | None = None) -> str:
         trace_path: Path to the loaded trace file
         process: Process name (uses default if not specified)
     """
+    resolved, err = _require_trace_path(trace_path)
+    if err:
+        return err
     try:
-        result = analyzer.analyze_startup(trace_path, process)
+        result = analyzer.analyze_startup(resolved, process)
         return json.dumps(result, indent=2, default=str)
     except Exception as e:
         return f"Error: {e}"
 
 
 @mcp.tool
-def analyze_jank(trace_path: str, process: str | None = None) -> str:
+def analyze_jank(trace_path: str | None = None, process: str | None = None) -> str:
     """Quick jank smoke-check for one trace.
 
     What it does:
@@ -498,8 +760,11 @@ def analyze_jank(trace_path: str, process: str | None = None) -> str:
         trace_path: Path to the loaded trace file
         process: Process name (uses default if not specified)
     """
+    resolved, err = _require_trace_path(trace_path)
+    if err:
+        return err
     try:
-        result = analyzer.analyze_jank(trace_path, process)
+        result = analyzer.analyze_jank(resolved, process)
         return json.dumps(result, indent=2, default=str)
     except Exception as e:
         return f"Error: {e}"
@@ -507,7 +772,7 @@ def analyze_jank(trace_path: str, process: str | None = None) -> str:
 
 @mcp.tool
 def analyze_scroll_performance(
-    trace_path: str,
+    trace_path: str | None = None,
     process: str | None = None,
     layer_name_hint: str | None = None,
 ) -> str:
@@ -539,9 +804,12 @@ def analyze_scroll_performance(
         layer_name_hint:  Substring to match the FrameTimeline layer (e.g. "MainActivity").
                           Auto-detected from process name if omitted.
     """
+    resolved, err = _require_trace_path(trace_path)
+    if err:
+        return err
     try:
         result = analyzer.scroll_performance_metrics(
-            trace_path, process, layer_name_hint
+            resolved, process, layer_name_hint
         )
         return json.dumps(result, indent=2, default=str)
     except Exception as e:
@@ -2092,6 +2360,9 @@ if __name__ == "__main__":
             transport = sys.argv[idx + 1]
 
     if transport == "http":
-        mcp.run(transport="streamable-http", host="0.0.0.0", port=8090)
+        mcp.run(transport="streamable-http", host="0.0.0.0", port=8090, show_banner=False)
     else:
-        mcp.run()
+        # Stdio MCP must keep stdout clean (JSON-RPC frames only).
+        logging.getLogger("fastmcp").setLevel(logging.ERROR)
+        logging.getLogger("mcp").setLevel(logging.ERROR)
+        mcp.run(show_banner=False)

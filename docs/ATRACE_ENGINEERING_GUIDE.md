@@ -107,7 +107,7 @@ java -jar <atrace-tool.jar> [--json] <subcommand> ...
 
 ### 4.4 Prompts
 
-`atrace-mcp/prompts.py` 注册 **`scroll_performance_workflow`**、**`iterative_diagnosis`** 等，将 **采集 + 多工具分析** 编排为对话流程。列表见 [`atrace-mcp/README.md`](../atrace-mcp/README.md)。
+`atrace-mcp/prompts.py` 注册 **`scroll_performance_workflow`**、**`iterative_diagnosis`** 等，将 **采集 + 多工具分析** 编排为对话流程。**Cursor 标准中文编排**：**`platform_hub_zh`**（场景入口表）、**`cn_standard_review`** / **`cn_standard_startup`** / **`cn_standard_jank`** / **`cn_standard_blocking`**（已有 trace）、**`cn_standard_cold_start_capture`**（冷启动采集+分析）。完整列表见 [`atrace-mcp/README.md`](../atrace-mcp/README.md)；与 [`ATRACE_PLATFORM_SCENARIOS.md`](ATRACE_PLATFORM_SCENARIOS.md) 对齐。
 
 ### 4.5 `load_trace` / 分析报错 `Request-sent` 或 `ResponseNotReady`
 
@@ -141,7 +141,8 @@ java -jar <atrace-tool.jar> [--json] <subcommand> ...
 ### 5.3 CI / 门禁
 
 - 采集：`atrace-tool capture --json` 解析 stdout 中的 `merged_trace` 路径。  
-- 分析：对固定 trace 跑 **Python trace_processor** 或自建脚本；或与 **MCP 解耦**，直接复用 `atrace-mcp` 内 SQL 逻辑（需抽库）。
+- 分析：对固定 trace 跑 **Python trace_processor** 或自建脚本；或与 **MCP 解耦**，直接复用 `atrace-mcp` 内 SQL 逻辑（需抽库）。  
+- **平台化阶段目标与清单**：见 **§8**（基线对比、标准输出、多入口等与「不只是工具」相关的演进项）。
 
 ---
 
@@ -152,6 +153,9 @@ java -jar <atrace-tool.jar> [--json] <subcommand> ...
 | [`atrace-tool/README.md`](../atrace-tool/README.md) | CLI 子命令、数据流、与 MCP 边界 |
 | [`atrace-mcp/README.md`](../atrace-mcp/README.md) | MCP 工具全集、`docs/configs` 场景配置、Prompt、打包分发、故障排查 |
 | [`ATRACE_MCP_DEMO_SCENARIOS.md`](ATRACE_MCP_DEMO_SCENARIOS.md) | **MCP 轨迹分析自动化**：样例参数、输出量级、冷启动 / 锁竞争说明与 SQL |
+| 本指南 **§8** | **平台化**：P0–P3 能力清单、工具 vs 平台交付对照、分析内核与多入口原则；与根目录 [README.md](../README.md)「项目定位与目标」对齐 |
+| [`ATRACE_PLATFORM_CLI.md`](ATRACE_PLATFORM_CLI.md) | **`atrace-analyze`** 无 MCP 分析、CI 与 **Cursor CLI** 组合说明 |
+| [`ATRACE_PLATFORM_SCENARIOS.md`](ATRACE_PLATFORM_SCENARIOS.md) | **平台**：常用场景编排、工具与下钻、**AI 话术**、**分析报告** 模板 |
 | [`PERFETTO_JANK_GUIDE.md`](PERFETTO_JANK_GUIDE.md) | 卡顿与 FrameTimeline 分析 |
 | [`configs/README.md`](configs/README.md) | Perfetto 场景 `.txtpb` 索引 |
 | [`ARTMETHOD_WATCHLIST.md`](ARTMETHOD_WATCHLIST.md) | 动态插桩 / WatchList（`addWatchedRule` 等） |
@@ -164,6 +168,40 @@ java -jar <atrace-tool.jar> [--json] <subcommand> ...
 - **应用采样合并**：依赖 **atrace-core** 与 **atrace-tool** 二进制格式一致（`ATRC` 头、extra JSON 字段）。  
 - **FrameTimeline 深度分析**：需 trace 中含对应数据源，且系统版本满足 MCP 工具注释中的 API 要求。  
 - **Heap**：API 29+，应用 **profileable 或 debuggable**。
+
+---
+
+## 8. 平台化：能力清单与阶段（对齐 TraceMind 产品目标）
+
+根目录 [README.md](../README.md)「**项目定位与目标**」将 TraceMind 表述为：**可重复、可协作、可被 AI 辅助** 的端到端流程（采集 → 分析 → 与研发工作流衔接）。本节从**工程视角**列出与「**平台 / 基础设施**」认知对应的补齐项，避免对外仅被理解为「一个 MCP 或单一工具」。
+
+### 8.1 「平台」与「工具」在交付上的差别（摘要）
+
+| 维度 | 工具型认知 | 平台型交付 |
+|------|------------|------------|
+| 输出 | 随会话、随人变化 | **结构化、可版本化**（如稳定 JSON 字段、报告模板） |
+| 复用 | 依赖个人经验 | **场景与指标文档化**（怎么采、跑哪些分析、合格线） |
+| 入口 | 单一（如仅 IDE） | **多入口共用同一分析内核**（MCP / 未来 CLI / Web / CI） |
+| 流程 | 与发版、合入弱相关 | **留档、对比、门禁** 与工单 / PR 可挂钩 |
+
+### 8.2 分阶段能力清单（建议路线图）
+
+| 阶段 | 目标 | 交付物 / 技术方向 | 与本仓库现状 |
+|------|------|-------------------|----------------|
+| **P0 标准** | 可重复、可说清「什么叫做完分析」 | 场景说明与指标表（冷启 / 滑动 / 内存等）；`analyze_*` 输出字段在文档中 **固定说明**；[`ATRACE_MCP_DEMO_SCENARIOS.md`](ATRACE_MCP_DEMO_SCENARIOS.md) 与本文持续对齐 | **已有**：合并采集、MCP 工具集、演示场景、本文 §4 |
+| **P1 数据与协作** | 可对比、可留档 | **trace + 元数据**（包名、版本、场景、Git SHA）命名与存储约定；同场景 **两版本 trace** 的指标 diff（脚本或文档化手工步骤 → 再自动化） | **部分**：结构化工具返回；**已有**：**`atrace-analyze`** 输出 JSON / `bundle`（见 [`ATRACE_PLATFORM_CLI.md`](ATRACE_PLATFORM_CLI.md)）；**待补**：统一 schema、`compare` 子命令 |
+| **P2 流程嵌入** | 进入质量与发布链路 | CI 对 **固定/采样 trace** 跑 **`atrace-analyze scroll|bundle`**，**超阈失败或告警**；与 **Cursor CLI Agent** 等并存，内核与 MCP 一致 | **已有**：§5.3、`atrace-analyze`；**待补**：内置 `compare`、约定 exit code |
+| **P3 组织与扩展** | 可持续运营 | 场景与阈值 **Owner**；业务线接入与答疑机制；可选 **Web**（上传 trace + 展示结构化报告，后端复用 `TraceAnalyzer`） | **可选**：按需立项 |
+
+### 8.3 分析内核与多入口（避免双份逻辑）
+
+- **原则**：**PerfettoSQL / `analyze_*` 逻辑** 宜收敛为 **单一 Python 模块**（当前主要在 `atrace-mcp/trace_analyzer.py`），**MCP**、未来 **CLI**、**HTTP 服务** 仅作薄适配层。  
+- **现状**：MCP 与 **`atrace-analyze`** 共用 **`trace_analyzer.py`**；CI 宜 **子进程调用 `atrace-analyze`** 或 **import 同源模块**，避免复制 SQL 导致漂移。
+
+### 8.4 对外表述建议（与 README 一致）
+
+- 介绍项目时并列强调：**增强轨迹（合并）**、**分析引擎（结构化 + SQL）**、**流程衔接（文档与留档）**；**MCP / Cursor** 作为 **高频入口之一**，而非唯一定义。  
+- 汇报「平台价值」时优先引用：**标准场景 + 可对比指标 + 流程接口**（门禁/工单），其次再提 AI 降门槛。
 
 ---
 

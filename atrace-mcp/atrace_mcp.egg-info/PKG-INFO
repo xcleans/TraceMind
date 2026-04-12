@@ -1,7 +1,7 @@
 Metadata-Version: 2.4
 Name: atrace-mcp
 Version: 1.0.0
-Summary: ATrace MCP Server — AI-driven Android performance analysis for Cursor/Claude
+Summary: ATrace MCP Server + headless trace analysis CLI (same engine as MCP)
 License-Expression: Apache-2.0
 Project-URL: Homepage, https://github.com/xcleans/TraceMind
 Project-URL: Documentation, https://github.com/xcleans/TraceMind/blob/main/README.md
@@ -21,9 +21,15 @@ Requires-Dist: fastmcp>=2.0.0
 Requires-Dist: perfetto>=0.7.0
 Requires-Dist: httpx>=0.25.0
 
-# TranceMind MCP Server
+# TraceMind MCP Server
 
-基于 [MCP (Model Context Protocol)](https://modelcontextprotocol.io/) 的 **Android 性能分析服务**，供 Cursor、Claude Desktop 等 AI 客户端调用。支持加载/分析 Perfetto 轨迹、控制设备端 TranceMind、采集 CPU（simpleperf）与堆内存（heapprofd），并在设备缺少工具时自动准备二进制。
+基于 [Model Context Protocol（MCP）](https://modelcontextprotocol.io/) 的 **Android 性能分析服务**，面向 **Cursor**、Claude Desktop 等客户端。在 **Cursor** 中接入本服务后，可通过自然语言驱动 MCP 工具，完成 **增强采集 → 轨迹合并 → `load_trace` / `execute_sql` / `analyze_*`**，由模型 **辅助选用工具、构造与修正 SQL、多轮下钻并归纳结论**。
+
+**采集**：依赖应用内 **ATrace SDK**（方法栈、插件、**`TraceServer`** 等）。需合并系统与应用数据时，本进程调用随 **`./gradlew deployMcp`** 部署的 **采集 JAR**（与命令行实现同源），将 **系统 Perfetto** 与 **ATrace 端上数据** 合并为 **单个 `.perfetto` 文件**。**分析**：默认通过 MCP 工具执行；**同一套引擎**也可通过命令行 **`atrace-analyze`** 离线跑（**无需 Cursor / MCP**），详见下文 **「无 MCP：atrace-analyze」** 与仓库 [`docs/ATRACE_PLATFORM_CLI.md`](../docs/ATRACE_PLATFORM_CLI.md)。
+
+**相对纯手工工作流的侧重**：流程连贯、降低 PerfettoSQL 编写成本、会话内快速迭代、结构化产出（表格 / JSON）便于归档。更系统的对比见根目录 [README.md](../README.md) 中 **「Cursor MCP：AI 辅助下的轨迹分析」** 一节。
+
+另支持设备端 ATrace 运行时控制、CPU 剖析（simpleperf）与堆内存剖析（heapprofd），并在设备缺少工具时自动准备二进制。**平台级：场景工具编排、可复制 AI 话术、分析报告模板** 见 [`docs/ATRACE_PLATFORM_SCENARIOS.md`](../docs/ATRACE_PLATFORM_SCENARIOS.md)。可复现实验与 Prompt 示例见 [`docs/ATRACE_MCP_DEMO_SCENARIOS.md`](../docs/ATRACE_MCP_DEMO_SCENARIOS.md)。
 
 ---
 
@@ -31,27 +37,28 @@ Requires-Dist: httpx>=0.25.0
 
 1. [前置条件](#前置条件)
 2. [安装](#安装)
-3. [接入 Cursor MCP](#接入-cursor-mcp)
-4. [工程文档与 atrace-tool](#工程文档与-atrace-tool)
-5. [Perfetto 场景配置](#perfetto-场景配置)
-6. [工具说明](#工具说明)
+3. [无 MCP：`atrace-analyze` CLI](#无-mcpatrace-analyze-cli)
+4. [接入 Cursor MCP](#接入-cursor-mcp)
+5. [工程文档与 atrace-tool](#工程文档与-atrace-tool)
+6. [Perfetto 场景配置](#perfetto-场景配置)
+7. [工具说明](#工具说明)
    - 6.1 [轨迹加载与查询](#61-轨迹加载与查询)
    - 6.2 [内置分析工具](#62-内置分析工具)
    - 6.3 [设备与采集](#63-设备与采集)
-   - 6.4 [TranceMind 运行时控制](#64-atrace-运行时控制)
+   - 6.4 [ATrace 运行时控制](#64-atrace-运行时控制)
    - 6.5 [CPU 剖析（simpleperf）](#65-cpu-剖析simpleperf)
    - 6.6 [堆内存剖析（heapprofd）](#66-堆内存剖析heapprofd)
    - 6.7 [工具辅助](#67-工具辅助)
-7. [Prompt 说明（register_prompts）](#prompt-说明register_prompts)
-8. [使用流程](#使用流程)
+8. [Prompt 说明（register_prompts）](#prompt-说明register_prompts)
+9. [使用流程](#使用流程)
    - 8.1 [工具路由建议](#81-工具路由建议agent--cursor-自动选工具)
    - 8.2 [滑动采集流程详解](#82-滑动采集流程详解)
    - 8.3 [analyze_scroll_performance 详解](#83-analyze_scroll_performance-详解)
-9. [常用话术集合](#常用话术集合可直接粘贴到-cursor-对话框)
-10. [运行方式](#运行方式)
-11. [故障排查](#故障排查)
-12. [依赖与版本](#依赖与版本)
-13. [打包与分发](#打包与分发)
+10. [常用话术集合](#常用话术集合可直接粘贴到-cursor-对话框)（与 [`ATRACE_PLATFORM_SCENARIOS.md`](../docs/ATRACE_PLATFORM_SCENARIOS.md) 平台编排互补）
+11. [运行方式](#运行方式)
+12. [故障排查](#故障排查)
+13. [依赖与版本](#依赖与版本)
+14. [打包与分发](#打包与分发)
 
 ---
 
@@ -61,7 +68,7 @@ Requires-Dist: httpx>=0.25.0
 |------|------|
 | **Python 3.10+** | 运行 MCP 服务端 |
 | **ADB** | 设备连接、端口转发、simpleperf/perfetto 推包 |
-| **TranceMind 应用** | 设备上已安装并开启 HTTP 服务（默认端口 9090） |
+| **集成 ATrace 的应用** | 被测应用已安装并运行，**TraceServer**（HTTP）可被本机采集端访问（通常需 **ADB 端口转发**，端口以工程与转发配置为准） |
 | **Perfetto Trace Processor** | 由 `perfetto` Python 包提供，用于本地解析轨迹 |
 | **可选：Android NDK** | 设备无 simpleperf 时，从本机 NDK 拷贝或自动下载 |
 | **可选：uv** | 推荐用 `uv run` 管理 Python 环境，无需手动建 venv |
@@ -86,6 +93,26 @@ source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 python server.py --help
 ```
+
+---
+
+## 无 MCP：`atrace-analyze` CLI
+
+与 MCP 共用 **`trace_analyzer.TraceAnalyzer`**，**无需启动 `server.py`、无需 Cursor**。适合 **CI、脚本、后端子进程**；安装本包后可用入口命令 **`atrace-analyze`**（`pyproject.toml` 中 `[project.scripts]` 已注册）。
+
+```bash
+# 安装后（或 pip install -e .）
+atrace-analyze overview /path/to/trace.perfetto
+atrace-analyze scroll /path/to/trace.perfetto --process com.example.app -o metrics.json
+atrace-analyze bundle /path/to/trace.perfetto --process com.example.app -o snapshot.json
+
+# 仓库内未安装时
+uv run python analyze_cli.py jank /path/to/trace.perfetto --process com.example.app
+```
+
+**子命令**：`overview` · `startup` · `jank` · `scroll` · `sql` · `top-slices` · `bundle`（一次输出 overview + jank + scroll）。**通用选项**：`-o` 输出文件，`--compact` 单行 JSON。
+
+与 **Cursor CLI Agent** 的配合（先 CLI 出 JSON，再由 Agent 写报告）见 [`docs/ATRACE_PLATFORM_CLI.md`](../docs/ATRACE_PLATFORM_CLI.md)。
 
 ---
 
@@ -139,8 +166,8 @@ python server.py --help
 |------|------|----------|
 | 轨迹加载与查询 | 本地解析 `.perfetto`，PerfettoSQL | `load_trace`、`execute_sql`、`query_slices`、`call_chain`、`slice_children`、`thread_states` |
 | 封装分析 | 常见场景 SQL 固化 | `trace_overview`、`analyze_startup`、`analyze_jank`、`analyze_scroll_performance`、`analyze_heap_profile` |
-| 设备采集 | 系统 Perfetto + 应用 TranceMind 采样合并 | `capture_trace`（及 `replay_scenario` 等） |
-| 运行时控制 | 经 TranceMind HTTP | `pause_tracing` / `resume_tracing`、`list_plugins`、`toggle_plugin`、WatchList / hook 等 |
+| 设备采集 | 系统 Perfetto + 应用 ATrace 采样合并 | `capture_trace`（及 `replay_scenario` 等） |
+| 运行时控制 | 经 ATrace **TraceServer**（HTTP） | `pause_tracing` / `resume_tracing`、`list_plugins`、`toggle_plugin`、WatchList / hook 等 |
 | CPU / 堆 | simpleperf、heapprofd | `capture_cpu_profile`、`report_cpu_profile`、`capture_heap_profile` 等 |
 | Prompt | 引导模型按步骤调工具 | 见本文 [Prompt 说明](#prompt-说明register_prompts) |
 
@@ -392,8 +419,14 @@ duration_seconds ≥ scroll_start_delay_seconds
 
 | Prompt 名 | 必填参数 | 可选参数 | 适用场景 |
 |-----------|----------|----------|----------|
-| `analyze_trace` | `trace_path` | `process_name`, `concern` | 通用入口：总览 → 自动分流到 startup/jank/blocking |
-| `startup_analysis` | `trace_path`, `process_name` | — | 冷启动分析（bindApplication/onCreate/inflate/首帧） |
+| **`platform_hub_zh`** | — | — | **Cursor 入口**：中文场景一览表，指导选用下列 `cn_*` / 英文 Prompt |
+| **`cn_standard_review`** | `trace_path`, `process_name` | — | **标准体检**：总览 → 帧质量 → jank → 主线程 Top SQL → 下钻 |
+| **`cn_standard_startup`** | `trace_path`, `process_name` | — | **冷启动（已有 trace）**：startup + 阻塞下钻 |
+| **`cn_standard_jank`** | `trace_path`, `process_name` | — | **滑动/帧（已有 trace）**：scroll_performance + jank + 最重帧下钻 |
+| **`cn_standard_blocking`** | `trace_path`, `process_name` | — | **主线程阻塞**：Binder/Lock/GC/IO SQL + thread_states + 下钻 |
+| **`cn_standard_cold_start_capture`** | `package` | `duration_seconds`, `serial` | **冷启动采集+分析**：capture_trace(cold_start) → startup + jank |
+| `analyze_trace` | `trace_path` | `process_name`, `concern` | 通用入口（英文步骤）：总览 → 自动分流到 startup/jank/blocking |
+| `startup_analysis` | `trace_path`, `process_name` | — | 冷启动分析（bindApplication/onCreate/inflate/首帧），SQL 详尽 |
 | `jank_analysis` | `trace_path`, `process_name` | — | 传统卡顿（Choreographer > 16.6ms），快速 triage |
 | `blocking_analysis` | `trace_path`, `process_name` | — | 主线程阻塞归因（Binder/Lock/GC/IO） |
 | `quick_health_check` | `trace_path` | — | 第一次看新 trace 的快速健康报告 |
@@ -407,10 +440,16 @@ duration_seconds ≥ scroll_start_delay_seconds
 
 | 意图 | 推荐 Prompt |
 |------|-------------|
+| **不确定用哪个（中文）** | **`platform_hub_zh`**（无参） |
+| **已有 trace，标准一条龙体检（中文）** | **`cn_standard_review`** |
+| **已有 trace，冷启动（中文）** | **`cn_standard_startup`** |
+| **已有 trace，滑动/帧/卡顿（中文）** | **`cn_standard_jank`** |
+| **主线程阻塞归因（中文）** | **`cn_standard_blocking`** |
+| **现场采冷启动再分析（中文）** | **`cn_standard_cold_start_capture`** |
 | 全流程（采集 + 分析滑动性能） | `scroll_performance_workflow` |
 | 症状描述式诊断（"滑动卡" / "启动慢"） | `iterative_diagnosis` |
 | 已有 trace，快速看整体 | `quick_health_check` 或 `analyze_trace` |
-| 已有 trace，分析卡顿 | `jank_analysis` |
+| 已有 trace，分析卡顿（英文步骤） | `jank_analysis` |
 | 具体追问（"Unknown Jank 根因是什么"） | `explore_issue` |
 | 插件/采样配置建议 | `plugin_tuning` |
 

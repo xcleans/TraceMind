@@ -1,5 +1,7 @@
 MANIFEST.in
 README.md
+_run_user_workflow.py
+analyze_cli.py
 device_controller.py
 prompts.py
 pyproject.toml

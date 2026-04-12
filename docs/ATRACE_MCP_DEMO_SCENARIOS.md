@@ -2,7 +2,7 @@
 
 本文说明如何在 **Cursor** 中通过 **`atrace-mcp`** 完成 **轨迹采集与分析自动化**：以对话编排 **增强采集（ATrace SDK + MCP 侧合并实现）→ 加载 → 预置分析 / 自定义 SQL**，使 **系统 Perfetto** 与 **应用侧 ATrace 数据** 在同一时间轴对齐，并由模型 **辅助选用工具、迭代查询与归纳结论**。文内给出 **可复现参数、示例输出量级及解读要点**（包名与路径请按本地环境替换）。
 
-**参考**：[atrace-mcp/README.md](../atrace-mcp/README.md)、根目录 [README.md](../README.md)（「Cursor MCP：AI 辅助下的轨迹分析」一节）
+**参考**：[atrace-mcp/README.md](../atrace-mcp/README.md)、根目录 [README.md](../README.md)（「Cursor MCP：AI 辅助下的轨迹分析」一节）、**[平台：场景编排 · 话术 · 报告模板](ATRACE_PLATFORM_SCENARIOS.md)**
 
 ---
 
