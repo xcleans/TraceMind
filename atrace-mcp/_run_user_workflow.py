@@ -6,8 +6,15 @@ import json
 import sys
 from pathlib import Path
 
-# Ensure imports work when run as script
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+_base = Path(__file__).resolve().parent
+if str(_base) not in sys.path:
+    sys.path.insert(0, str(_base))
+_repo_root = _base.parent
+_monorepo_path = _repo_root / "_monorepo.py"
+if _monorepo_path.is_file():
+    if str(_repo_root) not in sys.path:
+        sys.path.insert(0, str(_repo_root))
+    import _monorepo; _monorepo.bootstrap()  # noqa: E702
 
 from server import (  # noqa: E402
     analyze_jank,

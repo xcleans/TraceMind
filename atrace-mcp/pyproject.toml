@@ -24,7 +24,11 @@ dependencies = [
     "fastmcp>=2.0.0",
     "perfetto>=0.7.0",
     "httpx>=0.25.0",
+    "pydantic>=2.0.0",
 ]
+
+# Inter-package deps resolved via monorepo editable install (./dev-setup.sh)
+# atrace-device, atrace-analyzer, atrace-provision, atrace-capture
 
 [project.urls]
 Homepage = "https://github.com/xcleans/TraceMind"

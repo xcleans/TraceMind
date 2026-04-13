@@ -1,0 +1,9 @@
+name: memory_analysis
+scenario: memory
+engine: heap
+duration_sec: 15
+
+heap:
+  mode: native
+  sampling_interval_bytes: 4096
+  block_client: true

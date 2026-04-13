@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "atrace-ai"
+version = "0.1.0"
+description = "AI analysis engine for TraceMind — Cursor Agent runner, prompt builder, session manager, fallback analyzer"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["atrace_ai*"]

@@ -1,0 +1,8 @@
+name: binder_contention
+scenario: binder
+engine: merged
+duration_sec: 10
+
+perfetto:
+  template: binder
+  buffer_size_kb: 131072

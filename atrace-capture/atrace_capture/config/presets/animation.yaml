@@ -1,0 +1,8 @@
+name: animation_jank
+scenario: animation
+engine: merged
+duration_sec: 10
+
+perfetto:
+  template: animation
+  buffer_size_kb: 65536

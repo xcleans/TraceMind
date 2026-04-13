@@ -45,6 +45,7 @@ dependencies = [
     { name = "fastmcp" },
     { name = "httpx" },
     { name = "perfetto" },
+    { name = "pydantic" },
 ]
 
 [package.dev-dependencies]
@@ -57,6 +58,7 @@ requires-dist = [
     { name = "fastmcp", specifier = ">=2.0.0" },
     { name = "httpx", specifier = ">=0.25.0" },
     { name = "perfetto", specifier = ">=0.7.0" },
+    { name = "pydantic", specifier = ">=2.0.0" },
 ]
 
 [package.metadata.requires-dev]

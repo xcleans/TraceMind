@@ -1,0 +1,142 @@
+name: scroll
+description: |
+  滑动性能分析。目标是找出导致丢帧和卡顿的根因，给出可落地的优化建议。
+  你需要关注帧质量分布、主线程热点、阻塞调用、GPU 合成等维度。
+scenario: scroll
+
+# ── 采集配置 ──────────────────────────────────────────────
+capture:
+  config: scroll.txtpb
+  duration_s: 12
+  inject_scroll: true
+  scroll_params:
+    repeat: 5
+    dy: 600
+    duration_ms: 200
+    pause_ms: 300
+  description: |
+    使用 scroll.txtpb 配置采集，包含 FrameTimeline、sched、gfx、view、
+    input、binder_driver、sync、dalvik 等 atrace 类别。
+    采集时自动注入滑动手势以触发真实滚动场景。
+
+# ── 可用工具 ──────────────────────────────────────────────
+tools_required:
+  - name: load_trace
+    purpose: 加载 trace 文件，必须第一个调用
+  - name: analyze_scroll_performance
+    purpose: |
+      获取帧质量分布（janky_rate, p95/p99 帧时长）、worst frames、
+      主线程 top slices、compose slices、阻塞调用和综合评定
+
+tools_recommended:
+  - name: query_slices
+    purpose: 按耗时排序查询主线程函数调用，找热点函数
+  - name: execute_sql
+    purpose: 自定义 PerfettoSQL 查询，灵活下钻任意维度
+  - name: slice_children
+    purpose: 对耗时长的 slice 下钻查看子调用分解
+  - name: call_chain
+    purpose: 查看某个 slice 的完整调用链（祖先路径）
+  - name: thread_states
+    purpose: 分析线程状态分布（Running/Sleeping/Runnable/Uninterruptible）
+
+tools_optional:
+  - name: analyze_jank
+    purpose: 卡顿快速检查，作为 scroll 分析的补充
+  - name: trace_overview
+    purpose: trace 概览信息
+
+# ── 初始步骤（AI 必须先完成这些）─────────────────────────
+initial_steps:
+  - 调用 load_trace 加载 trace 文件
+  - 调用 analyze_scroll_performance 获取帧质量基础数据
+  - 调用 query_slices 获取主线程 Top-15 耗时函数（main_thread_only=true）
+
+# ── 分析策略（AI 参考这些方向自行探索）────────────────────
+strategy:
+  focus_areas:
+    - "帧质量分布：janky_frames 占比、p95/p99 帧时长是否超过 16.6ms/33.3ms"
+    - "主线程热点函数：按 dur 降序找 Top-10，对 > 8ms 的 slice 下钻 children"
+    - "阻塞调用：binder/GC/lock/IO 占主线程的时间比例"
+    - "线程调度：主线程 Runnable 等待时间是否异常（> 2ms），是否被抢占"
+    - "Choreographer#doFrame 耗时分解：measure / layout / draw 各占多少"
+    - "RecyclerView 相关：onBindViewHolder / onCreateViewHolder 耗时"
+    - "GPU 合成：是否有 dequeueBuffer / fence 等待超时"
+
+  sql_patterns:
+    worst_frames: |
+      SELECT
+        af.name, af.ts, af.dur, af.dur/1e6 AS dur_ms,
+        af.jank_type, af.jank_tag
+      FROM actual_frame_timeline_slice af
+      JOIN process p ON af.upid = p.upid
+      WHERE p.name LIKE '%{process}%'
+      ORDER BY af.dur DESC LIMIT 20
+    main_thread_blocking: |
+      SELECT s.name, count(*) AS cnt, round(sum(s.dur)/1e6, 2) AS total_ms
+      FROM slice s
+      JOIN thread_track tt ON s.track_id = tt.id
+      JOIN thread t ON tt.utid = t.utid
+      JOIN process p ON t.upid = p.upid
+      WHERE t.is_main_thread = 1
+        AND p.name LIKE '%{process}%'
+        AND (s.name LIKE '%binder%' OR s.name LIKE '%Lock%'
+             OR s.name LIKE '%GC%' OR s.name LIKE '%monitor%')
+      GROUP BY s.name ORDER BY total_ms DESC LIMIT 15
+    choreographer_breakdown: |
+      SELECT s.name, s.dur/1e6 AS dur_ms, s.id AS slice_id
+      FROM slice s
+      JOIN thread_track tt ON s.track_id = tt.id
+      JOIN thread t ON tt.utid = t.utid
+      JOIN process p ON t.upid = p.upid
+      WHERE t.is_main_thread = 1
+        AND p.name LIKE '%{process}%'
+        AND s.name LIKE 'Choreographer#doFrame%'
+      ORDER BY s.dur DESC LIMIT 10
+
+  drill_down_hints:
+    - "对 dur > 16ms 的主线程 slice 使用 slice_children 下钻"
+    - "对 Choreographer#doFrame 调用 slice_children 分解 measure/layout/draw"
+    - "检查 GC 事件是否与 jank frame 时间区间重叠"
+    - "对 Binder 调用 > 5ms 的使用 call_chain 找到发起方"
+    - "如果发现 RecyclerView 相关耗时，下钻看具体 ViewHolder 类型"
+
+  key_metrics:
+    - "janky_frame_rate (%)"
+    - "p95_frame_duration_ms"
+    - "p99_frame_duration_ms"
+    - "max_frame_duration_ms"
+    - "main_thread_busy_ratio (%)"
+    - "gc_during_scroll_count"
+    - "binder_blocking_total_ms"
+
+  common_root_causes:
+    - "主线程执行过多 measure/layout（布局嵌套过深或 requestLayout 频繁）"
+    - "RecyclerView onBindViewHolder 中做了 IO/网络/反序列化"
+    - "GC 暂停打断渲染流水线（Alloc GC > 2ms）"
+    - "Binder 同步调用阻塞主线程（contentResolver / PackageManager）"
+    - "主线程被 Lock 竞争阻塞（SharedPreferences / 数据库锁）"
+    - "GPU 合成超时（dequeueBuffer 等待 > 4ms）"
+    - "线程调度延迟（Runnable 状态 > 4ms，可能 CPU 被其他进程抢占）"
+
+# ── 报告结构建议 ──────────────────────────────────────────
+report_sections:
+  - title: "Executive Summary"
+    description: "3-5 条最关键的发现，每条直接关联具体指标"
+  - title: "帧质量指标"
+    description: "janky_rate, p95/p99 帧时长, worst frames 列表"
+  - title: "根因链路"
+    description: "现象 → 指标证据 → 可疑函数/线程 → trace 中的证据（slice_id/SQL结果）"
+  - title: "优化建议"
+    description: "P0/P1/P2 优先级，每项含：问题、证据、建议方案、预估收益"
+  - title: "下一步"
+    description: "如果证据不足，建议下一轮采集的方向（如加 memory config、hook 特定方法）"
+
+# ── 阈值参考 ──────────────────────────────────────────────
+thresholds:
+  janky_rate_warning: 15
+  p95_frame_ms_budget: 16.6
+  p99_frame_ms_budget: 33.3
+  max_frame_ms_freeze: 100
+  gc_during_scroll_warning: 3
+  binder_blocking_warning_ms: 10

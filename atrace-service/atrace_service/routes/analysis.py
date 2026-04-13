@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import urllib.parse
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -15,6 +16,7 @@ from atrace_service.engine import TraceAnalyzer, get_analyzer
 from atrace_service.models import AnalysisRequest, ErrorResponse, ScrollAnalysisRequest
 
 router = APIRouter(prefix="/analyze", tags=["analysis"])
+log = logging.getLogger("atrace.service.analysis")
 
 
 def _require_session(trace_id: str, analyzer: TraceAnalyzer) -> str:
@@ -54,11 +56,14 @@ def analyze_startup(
     body: AnalysisRequest,
     analyzer: TraceAnalyzer = Depends(get_analyzer),
 ) -> Any:
+    log.info("POST /analyze/%s/startup process=%s", trace_id, body.process)
     abs_path = _require_session(trace_id, analyzer)
     try:
         result = analyzer.analyze_startup(abs_path, body.process)
+        log.info("POST /analyze/%s/startup → done", trace_id)
         return result
     except Exception as exc:
+        log.error("POST /analyze/%s/startup failed: %s", trace_id, exc, exc_info=True)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -80,11 +85,14 @@ def analyze_jank(
     body: AnalysisRequest,
     analyzer: TraceAnalyzer = Depends(get_analyzer),
 ) -> Any:
+    log.info("POST /analyze/%s/jank process=%s", trace_id, body.process)
     abs_path = _require_session(trace_id, analyzer)
     try:
         result = analyzer.analyze_jank(abs_path, body.process)
+        log.info("POST /analyze/%s/jank → done", trace_id)
         return result
     except Exception as exc:
+        log.error("POST /analyze/%s/jank failed: %s", trace_id, exc, exc_info=True)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -112,6 +120,7 @@ def analyze_scroll(
     body: ScrollAnalysisRequest,
     analyzer: TraceAnalyzer = Depends(get_analyzer),
 ) -> Any:
+    log.info("POST /analyze/%s/scroll process=%s layer=%s", trace_id, body.process, body.layer_name_hint)
     abs_path = _require_session(trace_id, analyzer)
     try:
         result = analyzer.scroll_performance_metrics(
@@ -119,8 +128,11 @@ def analyze_scroll(
             process=body.process,
             layer_name_hint=body.layer_name_hint,
         )
+        verdict = result.get("verdict", {}).get("assessment", "?") if isinstance(result, dict) else "?"
+        log.info("POST /analyze/%s/scroll → verdict=%s", trace_id, verdict)
         return result
     except Exception as exc:
+        log.error("POST /analyze/%s/scroll failed: %s", trace_id, exc, exc_info=True)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
@@ -178,6 +190,7 @@ def analyze_scroll_stream(
     body: ScrollAnalysisRequest,
     analyzer: TraceAnalyzer = Depends(get_analyzer),
 ) -> StreamingResponse:
+    log.info("POST /analyze/%s/scroll/stream process=%s layer=%s", trace_id, body.process, body.layer_name_hint)
     abs_path = _require_session(trace_id, analyzer)
     return StreamingResponse(
         _sse_scroll_stream(abs_path, body.process, body.layer_name_hint, analyzer),

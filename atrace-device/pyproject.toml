@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "atrace-device"
+version = "0.1.0"
+description = "Device gateway for TraceMind — ADB bridge, App HTTP client, file transfer"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+dependencies = ["httpx>=0.25.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["atrace_device*"]

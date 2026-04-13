@@ -16,8 +16,11 @@ dependencies = [
     "uvicorn[standard]>=0.29.0",
     "pydantic>=2.0.0",
     "perfetto>=0.7.0",
-    "httpx>=0.25.0",    # optional: used by upstream atrace-mcp for ADB; kept for parity
+    "httpx>=0.25.0",
 ]
+
+# Inter-package deps resolved via monorepo editable install (./dev-setup.sh)
+# atrace-analyzer, atrace-device, atrace-ai, atrace-orchestrator
 
 [project.scripts]
 atrace-service = "atrace_service.main:start"

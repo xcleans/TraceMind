@@ -1,0 +1,116 @@
+name: memory
+description: |
+  内存分析。排查内存泄漏、异常分配、GC 压力等问题。
+  适用于 OOM 崩溃排查、内存增长趋势分析、堆快照对比等场景。
+scenario: memory
+
+capture:
+  config: memory.txtpb
+  duration_s: 30
+  description: |
+    使用 memory.txtpb 配置采集，包含 heapprofd 堆采样、
+    进程内存计数器、GC 事件等。采集时长建议 30s 以上以
+    捕获完整的内存增长趋势。
+
+tools_required:
+  - name: load_trace
+    purpose: 加载 trace 文件
+  - name: execute_sql
+    purpose: 查询内存相关数据（heap_profile、memory counters）
+
+tools_recommended:
+  - name: query_slices
+    purpose: 查找 GC 相关 slice 和内存分配热点
+  - name: trace_overview
+    purpose: 获取 trace 概览，确认包含内存数据源
+
+tools_optional:
+  - name: analyze_jank
+    purpose: 检查 GC 导致的卡顿
+  - name: thread_states
+    purpose: 分析 GC 线程占用情况
+  - name: capture_heap_profile
+    purpose: 如果当前 trace 不含 heap 数据，可以实时采集
+
+initial_steps:
+  - 调用 load_trace 加载 trace 文件
+  - 调用 trace_overview 确认 trace 中包含内存相关数据源
+  - 使用 execute_sql 查询进程内存计数器趋势
+
+strategy:
+  focus_areas:
+    - "RSS/PSS 内存趋势：是否持续增长（内存泄漏信号）"
+    - "Java Heap 占用：是否接近 dalvik.vm.heapsize 上限"
+    - "GC 频率和耗时：是否频繁触发 GC、单次 GC 暂停时间"
+    - "Native 内存分配：malloc/calloc 热点（需 heapprofd 数据）"
+    - "大对象分配：单次分配 > 1MB 的调用栈"
+    - "Bitmap 分配：图片加载相关的内存占用"
+
+  sql_patterns:
+    memory_counters: |
+      SELECT
+        t.name AS counter_name,
+        c.value / 1024 / 1024 AS value_mb,
+        c.ts
+      FROM counter c
+      JOIN counter_track t ON c.track_id = t.id
+      JOIN process p ON t.upid = p.upid
+      WHERE p.name LIKE '%{process}%'
+        AND t.name LIKE '%mem%'
+      ORDER BY c.ts ASC
+    gc_events: |
+      SELECT s.name, s.dur/1e6 AS dur_ms, s.ts
+      FROM slice s
+      JOIN thread_track tt ON s.track_id = tt.id
+      JOIN thread t ON tt.utid = t.utid
+      JOIN process p ON t.upid = p.upid
+      WHERE p.name LIKE '%{process}%'
+        AND (s.name LIKE '%GC%' OR s.name LIKE 'concurrent copying%'
+             OR s.name LIKE '%collector%')
+      ORDER BY s.dur DESC LIMIT 30
+    heap_allocations: |
+      SELECT
+        hpf.name AS function,
+        sum(ha.size) / 1024 AS total_kb,
+        count(*) AS alloc_count
+      FROM heap_profile_allocation ha
+      JOIN heap_profile_frame hpf ON ha.frame_id = hpf.id
+      GROUP BY hpf.name
+      ORDER BY total_kb DESC LIMIT 20
+
+  drill_down_hints:
+    - "对 GC 暂停 > 5ms 的事件用 thread_states 分析对主线程的影响"
+    - "使用 memory_counters SQL 绘制内存趋势，找到增长拐点"
+    - "对比操作前后的 RSS 差异，确认是否有内存泄漏"
+    - "检查 Bitmap 相关分配是否在 Activity 销毁后仍持有"
+
+  key_metrics:
+    - "rss_peak_mb"
+    - "java_heap_peak_mb"
+    - "native_heap_peak_mb"
+    - "gc_count"
+    - "gc_total_pause_ms"
+    - "gc_max_pause_ms"
+
+  common_root_causes:
+    - "Activity/Fragment 泄漏（被静态引用、匿名内部类、Handler 持有）"
+    - "Bitmap 未及时回收（大图加载、缩略图缓存无上限）"
+    - "集合类持续增长（List/Map 只 add 不 remove）"
+    - "Native 内存泄漏（JNI 分配未释放）"
+    - "WebView 内存泄漏（Activity 销毁时未调用 destroy）"
+
+report_sections:
+  - title: "内存概况"
+    description: "RSS/PSS/Java Heap 峰值和趋势"
+  - title: "GC 分析"
+    description: "GC 频率、暂停时间、对 UI 流畅度的影响"
+  - title: "泄漏排查"
+    description: "内存增长趋势、疑似泄漏对象"
+  - title: "优化建议"
+    description: "P0/P1/P2 优先级"
+
+thresholds:
+  rss_warning_mb: 512
+  java_heap_warning_pct: 80
+  gc_pause_warning_ms: 5
+  gc_count_warning_per_min: 30

@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "atrace-provision"
+version = "0.1.0"
+description = "Tool provisioner for TraceMind — discover, download, cache external binaries"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+keywords = ["android", "perfetto", "simpleperf", "provision"]
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["atrace_provision*"]

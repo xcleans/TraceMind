@@ -1,0 +1,138 @@
+name: startup
+description: |
+  冷启动全链路分析。从 am start 下发到首帧渲染完成，找出启动耗时瓶颈。
+  需要关注 Application 初始化、Activity 生命周期、ContentProvider、
+  首帧绘制、线程调度等维度。
+scenario: startup
+
+capture:
+  config: startup.txtpb
+  duration_s: 15
+  cold_start: true
+  description: |
+    使用 startup.txtpb 配置采集，包含 am、wm、gfx、view、res、dalvik、
+    binder_driver、ss、pm、input 等 atrace 类别。
+    采集前先 force-stop 应用以确保冷启动。
+
+tools_required:
+  - name: load_trace
+    purpose: 加载 trace 文件，必须第一个调用
+  - name: analyze_startup
+    purpose: |
+      获取结构化启动分析：bindApplication、activityStart、
+      activity_onCreate、reportFullyDrawn 等关键阶段耗时
+
+tools_recommended:
+  - name: query_slices
+    purpose: 按耗时排序查询主线程函数调用
+  - name: execute_sql
+    purpose: 自定义 SQL 查询，可灵活查看任意维度数据
+  - name: slice_children
+    purpose: 对耗时长的启动阶段 slice 下钻查看子调用
+  - name: call_chain
+    purpose: 查看调用链，定位耗时函数的上下文
+  - name: thread_states
+    purpose: 分析主线程在启动期间的状态分布
+
+tools_optional:
+  - name: analyze_jank
+    purpose: 检查启动过程中是否有明显卡顿
+  - name: trace_overview
+    purpose: trace 概览信息
+
+initial_steps:
+  - 调用 load_trace 加载 trace 文件
+  - 调用 analyze_startup 获取启动各阶段耗时基础数据
+  - 调用 query_slices 获取主线程 Top-15 耗时函数（main_thread_only=true）
+
+strategy:
+  focus_areas:
+    - "启动总耗时及各阶段占比：bindApplication / onCreate / 首帧绘制"
+    - "Application.onCreate 中的初始化链路：SDK 初始化、数据库、网络框架"
+    - "ContentProvider.onCreate 耗时（串行执行，逐个累加）"
+    - "首帧渲染耗时：inflate / measure / layout / draw"
+    - "主线程阻塞：Binder 调用、SharedPreferences、文件IO"
+    - "类加载和 DEX 解析耗时（dalvik 相关 slice）"
+    - "线程调度延迟：主线程 Runnable 等待是否被其他进程抢占"
+
+  sql_patterns:
+    startup_phases: |
+      SELECT s.name, s.dur/1e6 AS dur_ms, s.id AS slice_id
+      FROM slice s
+      JOIN thread_track tt ON s.track_id = tt.id
+      JOIN thread t ON tt.utid = t.utid
+      JOIN process p ON t.upid = p.upid
+      WHERE t.is_main_thread = 1
+        AND p.name LIKE '%{process}%'
+        AND (s.name LIKE 'bindApplication%'
+             OR s.name LIKE 'activityStart%'
+             OR s.name LIKE 'onCreate%'
+             OR s.name LIKE 'inflate%'
+             OR s.name LIKE 'performTraversals%'
+             OR s.name LIKE 'reportFullyDrawn%')
+      ORDER BY s.ts ASC
+    content_providers: |
+      SELECT s.name, s.dur/1e6 AS dur_ms, s.id AS slice_id
+      FROM slice s
+      JOIN thread_track tt ON s.track_id = tt.id
+      JOIN thread t ON tt.utid = t.utid
+      JOIN process p ON t.upid = p.upid
+      WHERE t.is_main_thread = 1
+        AND p.name LIKE '%{process}%'
+        AND s.name LIKE '%ContentProvider%'
+      ORDER BY s.dur DESC LIMIT 20
+    class_loading: |
+      SELECT s.name, count(*) AS cnt, round(sum(s.dur)/1e6, 2) AS total_ms
+      FROM slice s
+      JOIN thread_track tt ON s.track_id = tt.id
+      JOIN thread t ON tt.utid = t.utid
+      JOIN process p ON t.upid = p.upid
+      WHERE p.name LIKE '%{process}%'
+        AND (s.name LIKE 'JIT compiling%' OR s.name LIKE 'Class%'
+             OR s.name LIKE 'OpenDexFile%' OR s.name LIKE 'VerifyClass%')
+      GROUP BY s.name ORDER BY total_ms DESC LIMIT 20
+
+  drill_down_hints:
+    - "对 bindApplication 使用 slice_children 分解内部耗时"
+    - "对 activity_onCreate 下钻找出哪些 SDK 初始化耗时大"
+    - "对 inflate 下钻看哪些布局文件解析最慢"
+    - "检查 ContentProvider.onCreate 是否有耗时的数据库操作"
+    - "如果 Binder 耗时占比高，用 call_chain 定位具体调用方"
+
+  key_metrics:
+    - "total_startup_ms (启动总耗时)"
+    - "bindApplication_ms"
+    - "activity_onCreate_ms"
+    - "first_frame_ms (首帧绘制)"
+    - "content_provider_total_ms"
+    - "class_loading_total_ms"
+    - "binder_blocking_total_ms"
+    - "main_thread_runnable_wait_ms"
+
+  common_root_causes:
+    - "Application.onCreate 中同步初始化过多 SDK"
+    - "ContentProvider.onCreate 串行执行且某些 provider 做了数据库操作"
+    - "主线程同步读 SharedPreferences（apply 未提交完成时会阻塞）"
+    - "布局 inflate 过慢（XML 层级深、自定义 View 初始化重）"
+    - "类加载量大（DEX 文件多、multidex 场景下首次加载）"
+    - "Binder 跨进程调用阻塞（PackageManager.getPackageInfo 等）"
+    - "WebView 首次初始化（冷启动场景固定开销 ~100-200ms）"
+
+report_sections:
+  - title: "Executive Summary"
+    description: "3-5 条最关键的发现"
+  - title: "启动时序"
+    description: "各阶段耗时及占比（bindApplication → onCreate → 首帧）"
+  - title: "瓶颈分析"
+    description: "Top-5 耗时函数 + 下钻分解 + 调用链证据"
+  - title: "优化建议"
+    description: "P0/P1/P2 优先级，每项含：问题、证据、建议方案、预估收益"
+  - title: "下一步"
+    description: "需要进一步采集或验证的方向"
+
+thresholds:
+  total_startup_warning_ms: 2000
+  bind_application_warning_ms: 500
+  activity_oncreate_warning_ms: 300
+  content_provider_warning_ms: 100
+  first_frame_warning_ms: 300

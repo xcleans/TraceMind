@@ -71,7 +71,9 @@ def cmd_scroll(
     output: Path | None,
 ) -> None:
     analyzer.load(trace, process_name=process)
-    data = analyzer.scroll_performance_metrics(trace, process, layer_hint)
+    data = analyzer.scroll_performance_metrics(
+        trace, process=process, layer_name_hint=layer_hint
+    )
     _emit(data, pretty=pretty, output=output)
 
 
@@ -126,7 +128,9 @@ def cmd_bundle(
         "process": process,
         "overview": analyzer.overview(trace),
         "jank": analyzer.analyze_jank(trace, process),
-        "scroll": analyzer.scroll_performance_metrics(trace, process, None),
+        "scroll": analyzer.scroll_performance_metrics(
+            trace, process=process, layer_name_hint=None
+        ),
     }
     _emit(bundle, pretty=pretty, output=output)
 

@@ -13,6 +13,7 @@ Interactive API docs: http://localhost:7788/docs
 from __future__ import annotations
 
 import argparse
+import logging
 import shutil
 import subprocess
 import sys
@@ -21,6 +22,19 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# Unified logging bootstrap
+_repo_root = Path(__file__).resolve().parent.parent.parent
+_monorepo_path = _repo_root / "_monorepo.py"
+if _monorepo_path.is_file():
+    if str(_repo_root) not in sys.path:
+        sys.path.insert(0, str(_repo_root))
+_logging_path = _repo_root / "_logging.py"
+if _logging_path.is_file():
+    from _logging import get_logger as _get_logger
+    _get_logger("atrace.service", log_file="atrace-service.log")
+
+log = logging.getLogger("atrace.service")
 
 from atrace_service.engine import get_analyzer
 from atrace_service.routes.ai import router as ai_router
@@ -165,9 +179,15 @@ def env_check() -> dict:
 
 # ── Startup / Shutdown ────────────────────────────────────────────────────────
 
+@app.on_event("startup")
+def _on_startup() -> None:
+    log.info("atrace-service starting, repo_root=%s", _repo_root)
+
+
 @app.on_event("shutdown")
 def _on_shutdown() -> None:
     """Close all TraceProcessor sessions on graceful shutdown."""
+    log.info("atrace-service shutting down, closing trace sessions")
     get_analyzer().close_all()
 
 

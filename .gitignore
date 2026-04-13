@@ -10,6 +10,9 @@
 .idea
 .venv
 ./maven-repo
+log/
+__pycache__/
+*.pyc
 
 # atrace-mcp/bin/ contains the deployMcp build artifact (atrace-tool.jar).
 # This file IS intentionally tracked in git for standalone MCP distribution.

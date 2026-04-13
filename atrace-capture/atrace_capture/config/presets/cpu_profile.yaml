@@ -1,0 +1,9 @@
+name: cpu_profiling
+scenario: cpu_profile
+engine: cpu
+duration_sec: 10
+
+simpleperf:
+  event: cpu-cycles
+  frequency: 1000
+  call_graph: dwarf

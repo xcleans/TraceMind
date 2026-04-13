@@ -20,6 +20,7 @@ Description-Content-Type: text/markdown
 Requires-Dist: fastmcp>=2.0.0
 Requires-Dist: perfetto>=0.7.0
 Requires-Dist: httpx>=0.25.0
+Requires-Dist: pydantic>=2.0.0
 
 # TraceMind MCP Server
 

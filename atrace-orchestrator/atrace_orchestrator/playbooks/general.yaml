@@ -1,0 +1,89 @@
+name: general
+description: |
+  通用性能分析。当不确定具体场景时使用，AI 会从多个维度进行探索性分析。
+  适用于已有 trace 文件需要全面体检的情况。
+scenario: general
+
+capture:
+  config: config.txtpb
+  duration_s: 10
+  description: 通用 Perfetto 配置，覆盖 sched、gfx、view 等基础事件。
+
+tools_required:
+  - name: load_trace
+    purpose: 加载 trace 文件
+  - name: trace_overview
+    purpose: 获取 trace 概览，了解 trace 包含的进程、时间范围、数据源
+
+tools_recommended:
+  - name: analyze_startup
+    purpose: 启动分析（如果 trace 包含启动过程）
+  - name: analyze_jank
+    purpose: 卡顿分析
+  - name: analyze_scroll_performance
+    purpose: 滑动性能分析（如果 trace 包含滑动操作）
+  - name: query_slices
+    purpose: 按耗时查询函数调用
+  - name: execute_sql
+    purpose: 自定义 SQL 查询
+  - name: slice_children
+    purpose: 下钻子调用
+  - name: call_chain
+    purpose: 调用链分析
+  - name: thread_states
+    purpose: 线程状态分析
+
+initial_steps:
+  - 调用 load_trace 加载 trace 文件
+  - 调用 trace_overview 了解 trace 基本信息（时长、进程、数据源）
+  - 根据 trace 内容判断场景类型（是否包含启动/滑动/内存数据）
+  - 调用对应的 analyze_* 工具获取基础数据
+  - 调用 query_slices 获取主线程 Top-10 耗时函数
+
+strategy:
+  focus_areas:
+    - "先通过 overview 判断 trace 覆盖了什么场景"
+    - "如果包含 FrameTimeline 数据，优先分析帧质量"
+    - "如果包含启动 marker（bindApplication），分析启动"
+    - "始终关注主线程热点函数和阻塞调用"
+    - "检查是否有异常长耗时函数（> 100ms）"
+    - "分析线程调度情况（CPU 竞争、Runnable 等待）"
+
+  sql_patterns:
+    process_list: |
+      SELECT p.name, p.pid, p.upid
+      FROM process p
+      WHERE p.name IS NOT NULL
+      ORDER BY p.name
+    top_slices_all: |
+      SELECT s.name, s.dur/1e6 AS dur_ms, t.name AS thread,
+             p.name AS process, s.id AS slice_id
+      FROM slice s
+      JOIN thread_track tt ON s.track_id = tt.id
+      JOIN thread t ON tt.utid = t.utid
+      JOIN process p ON t.upid = p.upid
+      WHERE s.dur > 1000000
+      ORDER BY s.dur DESC LIMIT 30
+
+  drill_down_hints:
+    - "先用 overview 判断场景，再针对性选择分析工具"
+    - "对任何 > 50ms 的主线程 slice 都值得下钻"
+    - "如果发现多类问题，按影响程度排列优先级"
+
+  key_metrics:
+    - "trace_duration_s"
+    - "main_thread_busy_ratio"
+    - "top_slice_dur_ms"
+    - "janky_frame_count (如果有 FrameTimeline)"
+
+report_sections:
+  - title: "Trace 概览"
+    description: "trace 时长、目标进程、包含的数据源和场景类型"
+  - title: "关键发现"
+    description: "3-5 条最重要的性能问题"
+  - title: "详细分析"
+    description: "按问题严重程度逐一展开分析链路"
+  - title: "优化建议"
+    description: "P0/P1/P2 优先级"
+  - title: "场景建议"
+    description: "建议使用哪个专项 playbook 做深入分析（scroll/startup/memory）"

@@ -1,0 +1,17 @@
+name: cold_startup
+scenario: startup
+engine: merged
+duration_sec: 15
+
+perfetto:
+  template: startup
+  buffer_size_kb: 65536
+
+pre_actions:
+  - type: force_stop
+    params: {}
+
+capture_actions:
+  - type: cold_start
+    params:
+      force_stop_wait_ms: 500

@@ -1,0 +1,19 @@
+name: scroll_performance
+scenario: scroll
+engine: merged
+duration_sec: 10
+
+perfetto:
+  template: scroll
+  buffer_size_kb: 65536
+
+capture_actions:
+  - type: wait
+    params:
+      duration_ms: 2000
+  - type: scroll
+    params:
+      count: 5
+      duration_ms: 300
+      dy: 500
+      interval_ms: 500

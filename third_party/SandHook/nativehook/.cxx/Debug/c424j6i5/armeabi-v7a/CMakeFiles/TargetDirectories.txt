@@ -1,0 +1,3 @@
+/Users/mengliqwwi/Desktop/perf-tool/ATrace/third_party/SandHook/nativehook/.cxx/Debug/c424j6i5/armeabi-v7a/CMakeFiles/sandhook-native.dir
+/Users/mengliqwwi/Desktop/perf-tool/ATrace/third_party/SandHook/nativehook/.cxx/Debug/c424j6i5/armeabi-v7a/CMakeFiles/edit_cache.dir
+/Users/mengliqwwi/Desktop/perf-tool/ATrace/third_party/SandHook/nativehook/.cxx/Debug/c424j6i5/armeabi-v7a/CMakeFiles/rebuild_cache.dir

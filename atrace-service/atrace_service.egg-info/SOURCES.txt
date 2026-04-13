@@ -1,3 +1,4 @@
+README.md
 pyproject.toml
 atrace_service/__init__.py
 atrace_service/engine.py
@@ -10,6 +11,8 @@ atrace_service.egg-info/entry_points.txt
 atrace_service.egg-info/requires.txt
 atrace_service.egg-info/top_level.txt
 atrace_service/routes/__init__.py
+atrace_service/routes/ai.py
 atrace_service/routes/analysis.py
+atrace_service/routes/capture.py
 atrace_service/routes/trace.py
 atrace_service/routes/ui.py
