@@ -3,7 +3,7 @@
 Architecture follows simpleperf/scripts patterns:
   - _find_binary  ← ToolFinder (cursor CLI resolution)
   - _iter_jsonl   ← ipc.py     (line-by-line streaming parse)
-  - _parse_event  ← _stream_delta.py (JSONL event semantics)
+  - _parse_events ← JSONL event semantics (assistant + tool_call + tool + result)
 """
 
 from __future__ import annotations
@@ -36,8 +36,17 @@ log = logging.getLogger("atrace.ai")
 
 @dataclass
 class AgentEvent:
-    """Single parsed event from cursor agent JSONL stream."""
-    kind: str       # init | text | tool_use | tool_result | done | error
+    """Single parsed event from cursor agent JSONL stream.
+
+    Kinds align with Cursor CLI ``stream-json`` (and optional
+    ``--stream-partial-output``): ``init``, ``text``, ``tool_use``,
+    ``tool_result``, ``done``, ``error``, ``unknown``.
+
+    Native ``assistant`` blocks (``tool_use`` / ``text``) and IDE-style
+    ``tool_call`` events (``subtype`` ``started`` / ``completed``) are
+    normalized to ``tool_use`` + ``tool_result`` for a single consumer API.
+    """
+    kind: str
     data: dict[str, Any] = field(default_factory=dict)
 
 
@@ -142,31 +151,316 @@ class CursorAgentRunner:
                 continue
 
     @staticmethod
-    def _parse_event(ev: dict[str, Any]) -> AgentEvent:
-        t = ev.get("type", "")
+    def _tool_use_summary_from_input(inp: dict[str, Any]) -> str:
+        summary_parts: list[str] = []
+        for key in (
+            "trace_path",
+            "sql",
+            "slice_id",
+            "package",
+            "process",
+            "thread_name",
+            "duration_seconds",
+            "path",
+            "command",
+            "query",
+        ):
+            if key in inp:
+                summary_parts.append(f"{key}={str(inp[key])[:80]}")
+        return ", ".join(summary_parts) or str(inp)[:120]
 
-        if t == "system" and ev.get("subtype") == "init":
-            return AgentEvent("init", {
+    @staticmethod
+    def _assistant_message_events(message: dict[str, Any]) -> list[AgentEvent]:
+        """One JSON line may include multiple content blocks (text + tool_use)."""
+        events: list[AgentEvent] = []
+        for blk in message.get("content", []) or []:
+            btype = blk.get("type")
+            if btype == "text":
+                text = blk.get("text", "")
+                if text:
+                    events.append(AgentEvent("text", {"text": text}))
+            elif btype == "tool_use":
+                inp = blk.get("input", {}) or {}
+                events.append(AgentEvent("tool_use", {
+                    "name": blk.get("name", "?"),
+                    "summary": CursorAgentRunner._tool_use_summary_from_input(
+                        inp if isinstance(inp, dict) else {}
+                    ),
+                    "input": inp if isinstance(inp, dict) else {},
+                }))
+        return events
+
+    @staticmethod
+    def _parse_cursor_mcp_tool_call(
+        node: dict[str, Any],
+    ) -> tuple[str, dict[str, Any], str] | None:
+        """Parse Cursor ``mcpToolCall`` wire shape.
+
+        Cursor nests the real MCP tool arguments under ``mcpToolCall.args.args``::
+
+            mcpToolCall: {
+              "args": {
+                "name": "atrace-load_trace",
+                "args": { "trace_path": "...", ... },  // actual MCP params
+                "toolCallId": "...",
+                "providerIdentifier": "atrace",
+                "toolName": "load_trace"
+              },
+              "result": { ... }   // on completed events
+            }
+
+        Legacy flat shape (``mcpToolCall.name`` + ``mcpToolCall.args`` = params only)
+        is handled in the caller when this returns None.
+        """
+        envelope = node.get("args")
+        if not isinstance(envelope, dict):
+            return None
+        if not any(
+            k in envelope for k in ("toolCallId", "toolName", "providerIdentifier")
+        ):
+            return None
+        nested = envelope.get("args")
+        tool_params: dict[str, Any] = nested if isinstance(nested, dict) else {}
+        tn = str(envelope.get("toolName") or "").strip()
+        if not tn:
+            raw = str(envelope.get("name") or "").strip()
+            if raw.startswith("atrace-"):
+                tn = raw[7:]
+            else:
+                tn = raw or "mcp"
+        tid = str(envelope.get("toolCallId") or "")
+        return tn, tool_params, tid
+
+    @staticmethod
+    def _mcp_success_text_preview(success: dict[str, Any], limit: int = 600) -> str:
+        """Flatten ``success.content[].text`` (including nested ``{text: {text: "..."}}``)."""
+        content = success.get("content")
+        if isinstance(content, list):
+            chunks: list[str] = []
+            for item in content:
+                if not isinstance(item, dict):
+                    continue
+                t = item.get("text")
+                if isinstance(t, dict):
+                    inner = t.get("text")
+                    if isinstance(inner, str):
+                        chunks.append(inner)
+                    elif isinstance(inner, dict) and "text" in inner:
+                        chunks.append(str(inner.get("text", "")))
+                elif isinstance(t, str):
+                    chunks.append(t)
+            if chunks:
+                out = "\n".join(chunks)
+                return out if len(out) <= limit else f"{out[: limit - 3]}..."
+        try:
+            s = json.dumps(success, ensure_ascii=False)
+        except Exception:
+            s = str(success)
+        return s if len(s) <= limit else f"{s[: limit - 3]}..."
+
+    @staticmethod
+    def _parse_tool_call_started(ev: dict[str, Any]) -> AgentEvent | None:
+        tc = ev.get("tool_call")
+        if not isinstance(tc, dict):
+            return None
+        if "readToolCall" in tc:
+            node = tc["readToolCall"]
+            args = node.get("args", {}) if isinstance(node, dict) else {}
+            path = args.get("path", "") if isinstance(args, dict) else ""
+            return AgentEvent("tool_use", {
+                "name": "readToolCall",
+                "summary": f"path={str(path)[:200]}",
+                "input": {"path": path},
+            })
+        if "writeToolCall" in tc:
+            node = tc["writeToolCall"]
+            args = node.get("args", {}) if isinstance(node, dict) else {}
+            path = args.get("path", "") if isinstance(args, dict) else ""
+            return AgentEvent("tool_use", {
+                "name": "writeToolCall",
+                "summary": f"path={str(path)[:200]}",
+                "input": {"path": path},
+            })
+        if "mcpToolCall" in tc:
+            node = tc["mcpToolCall"]
+            if not isinstance(node, dict):
+                return None
+            parsed_mcp = CursorAgentRunner._parse_cursor_mcp_tool_call(node)
+            if parsed_mcp:
+                tool_name, tool_params, tid = parsed_mcp
+                summary = CursorAgentRunner._tool_use_summary_from_input(tool_params)
+                if not summary:
+                    summary = (
+                        "(MCP args empty in stream — model/host did not supply "
+                        "trace_path/process_name)"
+                        if not tool_params
+                        else ""
+                    )
+                return AgentEvent("tool_use", {
+                    "name": tool_name,
+                    "summary": f"{tool_name} {summary}".strip(),
+                    "input": tool_params,
+                    "toolCallId": tid,
+                })
+            mcp_name = str(node.get("name", "") or "mcp")
+            args = node.get("args")
+            if not isinstance(args, dict):
+                args = {}
+            raw_args = node.get("arguments")
+            if isinstance(raw_args, str) and raw_args.strip():
+                try:
+                    parsed = json.loads(raw_args)
+                    if isinstance(parsed, dict):
+                        args = {**args, **parsed}
+                except (json.JSONDecodeError, TypeError):
+                    args = {**args, "arguments_raw": raw_args[:500]}
+            summary = (
+                CursorAgentRunner._tool_use_summary_from_input(args)
+                or ("(no args in started event)" if not args else "")
+            )
+            return AgentEvent("tool_use", {
+                "name": mcp_name,
+                "summary": f"{mcp_name} {summary}".strip(),
+                "input": args,
+                "toolCallId": node.get("toolCallId", ""),
+            })
+        for key, node in tc.items():
+            if not isinstance(node, dict):
+                continue
+            args = node.get("args", {})
+            summary = (
+                CursorAgentRunner._tool_use_summary_from_input(args)
+                if isinstance(args, dict)
+                else str(node)[:160]
+            )
+            inner_name = node.get("name") if isinstance(node.get("name"), str) else None
+            display_name = inner_name or key
+            return AgentEvent("tool_use", {
+                "name": display_name,
+                "summary": summary or str(node)[:120],
+                "input": args if isinstance(args, dict) else {},
+            })
+        return None
+
+    @staticmethod
+    def _safe_int(value: Any, default: int = 0) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _parse_tool_call_completed(ev: dict[str, Any]) -> AgentEvent:
+        tc = ev.get("tool_call")
+        if not isinstance(tc, dict):
+            return AgentEvent("tool_result", {"preview": "(empty)", "line_count": 0})
+        if "readToolCall" in tc:
+            node = tc["readToolCall"]
+            if not isinstance(node, dict):
+                return AgentEvent("tool_result", {"preview": "(empty)", "line_count": 0})
+            res = node.get("result", {})
+            if isinstance(res, dict) and "success" in res:
+                succ = res["success"]
+                lines = succ.get("totalLines", 0) if isinstance(succ, dict) else 0
+                preview = f"read ok, {lines} lines"
+                return AgentEvent("tool_result", {
+                    "preview": preview[:200],
+                    "line_count": CursorAgentRunner._safe_int(lines),
+                })
+            err = res.get("error", "read failed") if isinstance(res, dict) else "read failed"
+            return AgentEvent("tool_result", {
+                "preview": str(err)[:200],
+                "line_count": 0,
+            })
+        if "writeToolCall" in tc:
+            node = tc["writeToolCall"]
+            if not isinstance(node, dict):
+                return AgentEvent("tool_result", {"preview": "(empty)", "line_count": 0})
+            res = node.get("result", {})
+            if isinstance(res, dict) and "success" in res:
+                succ = res["success"]
+                created = succ.get("linesCreated", 0) if isinstance(succ, dict) else 0
+                preview = f"write ok, {created} lines"
+                return AgentEvent("tool_result", {
+                    "preview": preview[:200],
+                    "line_count": CursorAgentRunner._safe_int(created),
+                })
+            err = res.get("error", "write failed") if isinstance(res, dict) else "write failed"
+            return AgentEvent("tool_result", {
+                "preview": str(err)[:200],
+                "line_count": 0,
+            })
+        if "mcpToolCall" in tc:
+            node = tc["mcpToolCall"]
+            if not isinstance(node, dict):
+                return AgentEvent("tool_result", {"preview": "(empty)", "line_count": 0})
+            res = node.get("result", {})
+            if isinstance(res, dict):
+                if "success" in res:
+                    succ = res["success"]
+                    if isinstance(succ, dict):
+                        text = CursorAgentRunner._mcp_success_text_preview(succ)
+                    else:
+                        text = json.dumps(succ, ensure_ascii=False)[:400]
+                    lines = len(text.splitlines()) if text else 0
+                    return AgentEvent("tool_result", {
+                        "preview": text or "mcp ok",
+                        "line_count": max(lines, 1) if text else 0,
+                    })
+                if "error" in res:
+                    err = res["error"]
+                    return AgentEvent("tool_result", {
+                        "preview": str(err)[:200],
+                        "line_count": 0,
+                    })
+            text = json.dumps(res, ensure_ascii=False)[:400] if res else ""
+            return AgentEvent("tool_result", {
+                "preview": text[:200] or "(empty)",
+                "line_count": 0,
+            })
+        for _key, node in tc.items():
+            if not isinstance(node, dict):
+                continue
+            res = node.get("result", node)
+            text = json.dumps(res, ensure_ascii=False)[:500] if res is not None else ""
+            lines = str(res).strip().splitlines() if res is not None else []
+            return AgentEvent("tool_result", {
+                "preview": text[:200] or "(empty)",
+                "line_count": len(lines),
+            })
+        return AgentEvent("tool_result", {"preview": "(empty)", "line_count": 0})
+
+    @staticmethod
+    def _parse_events(ev: dict[str, Any]) -> list[AgentEvent]:
+        """Map one JSONL object to zero or more AgentEvents (official stream-json)."""
+        t = ev.get("type", "")
+        subtype = ev.get("subtype") or ""
+
+        if t == "system" and subtype == "init":
+            return [AgentEvent("init", {
                 "session_id": ev.get("session_id", ""),
                 "model": ev.get("model", ""),
-            })
+            })]
 
         if t == "assistant":
-            for blk in ev.get("message", {}).get("content", []):
-                btype = blk.get("type")
-                if btype == "text":
-                    return AgentEvent("text", {"text": blk.get("text", "")})
-                if btype == "tool_use":
-                    inp = blk.get("input", {})
-                    summary_parts = []
-                    for k in ("trace_path", "sql", "slice_id", "package",
-                              "process", "thread_name", "duration_seconds"):
-                        if k in inp:
-                            summary_parts.append(f"{k}={str(inp[k])[:80]}")
-                    return AgentEvent("tool_use", {
-                        "name": blk.get("name", "?"),
-                        "summary": ", ".join(summary_parts) or str(inp)[:120],
-                    })
+            msg = ev.get("message", {})
+            if isinstance(msg, dict):
+                parsed = CursorAgentRunner._assistant_message_events(msg)
+                if parsed:
+                    return parsed
+
+        if t == "tool_call" and subtype == "started":
+            started = CursorAgentRunner._parse_tool_call_started(ev)
+            if started:
+                return [started]
+            return [AgentEvent("tool_use", {
+                "name": "tool_call",
+                "summary": str(ev.get("tool_call", ""))[:120],
+                "input": {},
+            })]
+
+        if t == "tool_call" and subtype == "completed":
+            return [CursorAgentRunner._parse_tool_call_completed(ev)]
 
         if t == "tool":
             content = ev.get("content", "")
@@ -175,21 +469,32 @@ class CursorAgentRunner:
                     c.get("text", "") for c in content if isinstance(c, dict)
                 )
             lines = str(content).strip().splitlines()
-            return AgentEvent("tool_result", {
+            return [AgentEvent("tool_result", {
                 "preview": lines[0][:120] if lines else "(empty)",
                 "line_count": len(lines),
-            })
+            })]
 
         if t == "result":
-            usage = ev.get("usage", {})
-            return AgentEvent("done", {
-                "is_error": ev.get("is_error", False),
+            usage = ev.get("usage", {}) or {}
+            is_error = bool(ev.get("is_error", False))
+            if subtype == "error":
+                is_error = True
+            elif subtype == "success":
+                is_error = False
+            return [AgentEvent("done", {
+                "is_error": is_error,
+                "subtype": subtype,
                 "duration_ms": ev.get("duration_ms", 0),
                 "input_tokens": usage.get("inputTokens", 0),
                 "output_tokens": usage.get("outputTokens", 0),
-            })
+            })]
 
-        return AgentEvent("unknown", ev)
+        if t == "error":
+            return [AgentEvent("error", {
+                "message": ev.get("message", str(ev)),
+            })]
+
+        return [AgentEvent("unknown", {"raw": ev})]
 
     # ── synchronous run ──────────────────────────────────────
 
@@ -217,17 +522,18 @@ class CursorAgentRunner:
 
         try:
             for raw_ev in self._iter_jsonl(proc.stdout):
-                parsed = self._parse_event(raw_ev)
-                if parsed.kind == "init":
-                    cursor_sid = parsed.data.get("session_id", "")
-                elif parsed.kind == "text":
-                    text_parts.append(parsed.data["text"])
-                elif parsed.kind == "tool_use":
-                    tool_calls.append(parsed.data)
-                elif parsed.kind == "tool_result" and tool_calls:
-                    tool_calls[-1]["result_preview"] = parsed.data.get("preview", "")
-                elif parsed.kind == "done":
-                    result_data = parsed.data
+                for parsed in self._parse_events(raw_ev):
+                    if parsed.kind == "init":
+                        cursor_sid = parsed.data.get("session_id", "")
+                    elif parsed.kind == "text":
+                        text_parts.append(parsed.data["text"])
+                    elif parsed.kind == "tool_use":
+                        tool_calls.append(parsed.data)
+                    elif parsed.kind == "tool_result" and tool_calls:
+                        tool_calls[-1]["result_preview"] = parsed.data.get(
+                            "preview", "")
+                    elif parsed.kind == "done":
+                        result_data = parsed.data
             proc.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             proc.kill()
@@ -275,18 +581,32 @@ class CursorAgentRunner:
         event_count = 0
         try:
             for raw_ev in self._iter_jsonl(proc.stdout):
-                parsed = self._parse_event(raw_ev)
-                event_count += 1
-                if parsed.kind == "tool_use":
-                    log.info("[iter_events] tool_use: %s(%s)", parsed.data.get("name"), parsed.data.get("summary", ""))
-                elif parsed.kind == "tool_result":
-                    log.info("[iter_events] tool_result: %s (%d lines)", parsed.data.get("preview", "")[:80], parsed.data.get("line_count", 0))
-                elif parsed.kind == "error":
-                    log.error("[iter_events] error event: %s", parsed.data)
-                elif parsed.kind == "done":
-                    log.info("[iter_events] done: tokens_in=%s tokens_out=%s duration=%sms",
-                             parsed.data.get("input_tokens"), parsed.data.get("output_tokens"), parsed.data.get("duration_ms"))
-                yield parsed
+                for parsed in self._parse_events(raw_ev):
+                    event_count += 1
+                    if parsed.kind == "tool_use":
+                        log.info(
+                            "[iter_events] tool_use: %s(%s)",
+                            parsed.data.get("name"),
+                            parsed.data.get("summary", ""),
+                        )
+                    elif parsed.kind == "tool_result":
+                        log.info(
+                            "[iter_events] tool_result: %s (%d lines)",
+                            parsed.data.get("preview", "")[:80],
+                            parsed.data.get("line_count", 0),
+                        )
+                    elif parsed.kind == "error":
+                        log.error("[iter_events] error event: %s", parsed.data)
+                    elif parsed.kind == "done":
+                        log.info(
+                            "[iter_events] done: tokens_in=%s tokens_out=%s duration=%sms",
+                            parsed.data.get("input_tokens"),
+                            parsed.data.get("output_tokens"),
+                            parsed.data.get("duration_ms"),
+                        )
+                    elif parsed.kind == "unknown":
+                        log.debug("[iter_events] unknown: %s", parsed.data)
+                    yield parsed
             rc = proc.wait(timeout=10)
             log.info("[iter_events] process exited rc=%s events=%d", rc, event_count)
             if rc != 0:

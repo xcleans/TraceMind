@@ -1,5 +1,0 @@
-Checking whether the ASM compiler is GNU using "--version" did not match "(GNU assembler)|(GCC)|(Free Software Foundation)":
-Android (12896553, +pgo, -bolt, +lto, -mlgo, based on r530567c) clang version 19.0.0 (https://android.googlesource.com/toolchain/llvm-project 97a699bf4812a18fb657c2779f5296a4ab2694d2)
-Target: x86_64-apple-darwin24.6.0
-Thread model: posix
-InstalledDir: /Users/mengliqwwi/Library/Android/sdk/ndk/28.0.13004108/toolchains/llvm/prebuilt/darwin-x86_64/bin

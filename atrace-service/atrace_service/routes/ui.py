@@ -193,6 +193,7 @@ button:disabled{opacity:.4;cursor:not-allowed}
     </div>
     <div class="sidebar-ft">
       <button class="btn-ghost btn-sm" onclick="refreshSessions()">↻ Refresh</button>
+      <button class="btn-ghost btn-sm" onclick="openInPerfetto()">↗ Open Perfetto</button>
     </div>
   </aside>
 
@@ -488,6 +489,15 @@ function selectTrace(path) {
   refreshSessions();
   fetchAISessions();
   switchTab(activeTab);
+}
+
+function openInPerfetto() {
+  if (!currentTrace) {
+    alert('请先加载并选择一个 trace');
+    return;
+  }
+  const url = `/trace/${tid()}/open-in-perfetto`;
+  window.open(url, '_blank');
 }
 
 // ── Load Trace ─────────────────────────────────────────────────────────────

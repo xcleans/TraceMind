@@ -56,6 +56,7 @@ py-modules = [
     "trace_analyzer",
     "tool_provisioner",
     "prompts",
+    "mcp_pipeline",
 ]
 
 # data_files ships non-Python assets alongside the wheel.
@@ -85,8 +86,8 @@ py-modules = [
 ]
 
 # ── uv / pip extras ──────────────────────────────────────────────────────────
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "twine>=5.0.0",   # for publishing to PyPI: uv run twine upload dist/*
 ]
 

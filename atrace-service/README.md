@@ -39,6 +39,18 @@ uv run atrace-service --host 127.0.0.1 --port 7788
 uv run atrace-service --host 127.0.0.1 --port 7788 --reload
 ```
 
+### 方式一补充：启动前自动清理占用端口的残留进程
+
+当你遇到 `address already in use`（例如 `127.0.0.1:7788`）时，可使用内置启动脚本：
+
+```bash
+cd atrace-service
+bash scripts/start-atrace-service.sh --reload
+```
+
+脚本会先检查端口监听进程，自动清理疑似 `atrace-service/uvicorn` 残留进程，再启动服务。  
+若要强制清理任意占用进程，可追加 `--force-clean`。
+
 ### 方式二：`uv run` + uvicorn
 
 与仓库内 `main.py` 文档字符串一致：

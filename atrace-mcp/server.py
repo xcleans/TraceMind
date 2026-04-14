@@ -27,6 +27,10 @@ if _logging_path.is_file():
     from _logging import get_logger as _get_logger
     _get_logger("atrace.mcp", log_file="atrace-mcp.log")
 
+import mcp_pipeline
+
+mcp_pipeline.install_fastmcp_tool_logging()
+
 from device_controller import DeviceController
 from trace_analyzer import TraceAnalyzer
 from prompts import register_prompts
@@ -74,6 +78,8 @@ if __name__ == "__main__":
         idx = sys.argv.index("--transport")
         if idx + 1 < len(sys.argv):
             transport = sys.argv[idx + 1]
+
+    mcp_pipeline.log_mcp_launch(transport=transport)
 
     if transport == "http":
         mcp.run(transport="streamable-http", host="0.0.0.0", port=8090, show_banner=False)

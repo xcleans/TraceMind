@@ -9,7 +9,8 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
+from fastapi.responses import FileResponse, RedirectResponse
 
 from atrace_service.engine import TraceAnalyzer, get_analyzer
 from atrace_service.models import (
@@ -52,6 +53,15 @@ def _require_session(trace_id: str, analyzer: TraceAnalyzer) -> str:
                 detail=f"Trace exists but cannot be loaded: {trace_path}. {exc}",
             ) from exc
     return abs_path
+
+
+def _build_perfetto_urls(trace_path: str, request: Request) -> tuple[str, str]:
+    """Return (download_url, perfetto_ui_url) for the given local trace path."""
+    base = str(request.base_url).rstrip("/")
+    encoded_trace = urllib.parse.quote(trace_path, safe="")
+    download_url = f"{base}/trace/{encoded_trace}/download"
+    ui_url = "https://ui.perfetto.dev/#!/?url=" + urllib.parse.quote(download_url, safe="")
+    return download_url, ui_url
 
 
 def _sanitize_upload_filename(filename: str) -> str:
@@ -141,6 +151,42 @@ def unload_trace(
     analyzer.close(trace_path)
     log.info("DELETE /trace/%s → closed", trace_path)
     return {"status": "closed", "trace_path": trace_path}
+
+
+@router.get(
+    "/{trace_id:path}/download",
+    summary="Download current trace file",
+    description="Download the currently loaded trace file bytes.",
+)
+def download_trace(
+    trace_id: str,
+    analyzer: TraceAnalyzer = Depends(get_analyzer),
+) -> FileResponse:
+    abs_path = _require_session(trace_id, analyzer)
+    p = Path(abs_path)
+    if not p.is_file():
+        raise HTTPException(status_code=404, detail=f"Trace file not found: {abs_path}")
+    log.info("GET /trace/%s/download", trace_id)
+    return FileResponse(path=str(p), filename=p.name, media_type="application/octet-stream")
+
+
+@router.get(
+    "/{trace_id:path}/open-in-perfetto",
+    summary="Open current trace in Perfetto UI",
+    description=(
+        "Redirect to https://ui.perfetto.dev with a prefilled trace download URL. "
+        "If browser blocks cross-origin/mixed-content fetch, use the /download endpoint manually."
+    ),
+)
+def open_in_perfetto(
+    trace_id: str,
+    request: Request,
+    analyzer: TraceAnalyzer = Depends(get_analyzer),
+) -> RedirectResponse:
+    abs_path = _require_session(trace_id, analyzer)
+    _download_url, ui_url = _build_perfetto_urls(abs_path, request)
+    log.info("GET /trace/%s/open-in-perfetto -> %s", trace_id, ui_url)
+    return RedirectResponse(url=ui_url, status_code=307)
 
 
 # ── Overview ──────────────────────────────────────────────────────────────────

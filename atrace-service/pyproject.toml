@@ -29,8 +29,8 @@ atrace-service = "atrace_service.main:start"
 where = ["."]
 include = ["atrace_service*"]
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
     "httpx>=0.25.0",

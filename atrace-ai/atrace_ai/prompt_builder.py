@@ -8,6 +8,7 @@ Two generation modes:
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -15,22 +16,27 @@ if TYPE_CHECKING:
 
 
 def _mcp_contract(trace_path: str, process: str | None = None) -> str:
-    proc_arg = f', process_name="{process}"' if process else ""
     proc_rule = ""
     if process:
         proc_rule = (
             f'- **process 参数必须使用完整包名 "{process}"**，'
             f'不要缩写、不要截断、不要只传部分字符。\n'
-            f'  · load_trace 的 process_name 参数 = "{process}"\n'
+            f'  · 优先在 analyze_startup / analyze_jank / analyze_scroll_performance / query_slices 中传 process="{process}"\n'
+            f'  · load_trace 的 process_name 可选；若传必须是 JSON 字符串 "{process}"\n'
             f'  · analyze_startup / analyze_jank / analyze_scroll_performance 的 process 参数 = "{process}"\n'
             f'  · query_slices 的 process 参数 = "{process}"\n'
             f'  · thread_states 等其他工具如需 process 也使用 "{process}"\n'
         )
     return (
         "参数契约（必须严格遵守，违反会导致分析失败）：\n"
-        f'- 第一个工具调用必须是 load_trace(trace_path="{trace_path}"{proc_arg})。\n'
-        f'- 后续每一个 MCP 工具调用都必须显式带 trace_path="{trace_path}"。\n'
+        "- 所有 MCP tool 一律使用单参数 `payload_json`（JSON 字符串）。\n"
+        "- 示例：\n"
+        f"  load_trace(payload_json='{{\"trace_path\":\"{trace_path}\",\"process_name\":\"{process or 'com.example.app'}\"}}')\n"
+        f"  analyze_jank(payload_json='{{\"trace_path\":\"{trace_path}\",\"process\":\"{process or 'com.example.app'}\"}}')\n"
+        f'- 后续每一个 MCP 工具调用都必须在 payload_json 里显式带 trace_path="{trace_path}"。\n'
         f'{proc_rule}'
+        "- JSON 参数必须使用双引号，示例：\n"
+        "  {\"trace_path\":\"/tmp/a.perfetto\",\"process\":\"com.example.app\"}\n"
         "- 参数名必须与 MCP schema 完全一致：\n"
         "  · load_trace 用 process_name（不是 process）\n"
         "  · analyze_startup / analyze_jank / analyze_scroll_performance 用 process（不是 process_name）\n"
@@ -72,7 +78,7 @@ class PromptBuilder:
         parts.append(f"**场景类型**: {playbook.scenario}\n")
 
         # MCP contract
-        parts.append(_mcp_contract(trace_path, process))
+        # parts.append(_mcp_contract(trace_path, process))
 
         # Capture context
         if playbook.capture.description:
@@ -221,12 +227,13 @@ class PromptBuilder:
                 return PromptBuilder.from_playbook(pb, trace_path, process)
 
         proc = process or ""
-        layer_arg = f', layer_name_hint="{layer_hint}"' if layer_hint else ""
-        load_call = (
-            f'load_trace(trace_path="{trace_path}", process_name="{proc}")'
-            if proc else
-            f'load_trace(trace_path="{trace_path}")'
-        )
+        scroll_payload = {
+            "trace_path": trace_path,
+            "process": proc,
+        }
+        if layer_hint:
+            scroll_payload["layer_name_hint"] = layer_hint
+        scroll_payload_json = json.dumps(scroll_payload, ensure_ascii=False)
         return (
             "请执行\"自动AI性能分析\"，并给出可执行结论。\n\n"
             f"输入信息：\n"
@@ -238,13 +245,10 @@ class PromptBuilder:
             "- 若某一步失败，说明失败原因并继续执行可完成的步骤。\n"
             "- 所有结论都要绑定到具体指标。\n\n"
             "执行步骤：\n"
-            f"1. 调用 {load_call} 加载 trace。\n"
-            f'2. 调用 analyze_startup(trace_path="{trace_path}", '
-            f'process="{proc}")。\n'
-            f'3. 调用 analyze_jank(trace_path="{trace_path}", '
-            f'process="{proc}")。\n'
-            f'4. 调用 analyze_scroll_performance(trace_path="{trace_path}", '
-            f'process="{proc}"{layer_arg})。\n'
+            f"1. 调用 load_trace(payload_json='{{\"trace_path\":\"{trace_path}\"}}') 加载 trace。\n"
+            f'2. 调用 analyze_startup(payload_json=\'{{"trace_path":"{trace_path}","process":"{proc}"}}\')。\n'
+            f'3. 调用 analyze_jank(payload_json=\'{{"trace_path":"{trace_path}","process":"{proc}"}}\')。\n'
+            f"4. 调用 analyze_scroll_performance(payload_json='{scroll_payload_json}')。\n"
             "5. 额外执行 2 条 SQL（execute_sql）补充证据：\n"
             f"   - 主线程 Top slices（按 dur 降序，过滤 {proc}）\n"
             "   - 主要阻塞（binder/gc/lock/io）按总耗时汇总\n"
