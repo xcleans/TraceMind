@@ -70,6 +70,8 @@ McpThreadName = Annotated[
 TRACE_VIEWER_HINT = (
     "\n\n若需确认或分析该 trace：打开 https://ui.perfetto.dev → 点击 Open trace file "
     "（或拖拽文件到页面）→ 选择上述 trace 文件即可在浏览器中正确加载并查看。"
+    "\n\n或在 MCP 中调用 `open_trace_in_perfetto_browser`（与 `record_android_trace` 相同："
+    "本机 127.0.0.1:9001 临时 HTTP + CORS + `webbrowser` 打开 ui.perfetto.dev 深链）。"
 )
 
 _MIN_PROCESS_LEN = 3

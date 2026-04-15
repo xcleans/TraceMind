@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -10,8 +11,12 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 
+from atrace_capture.perfetto_viewer import (
+    build_perfetto_deep_link,
+    open_trace_in_perfetto,
+)
 from atrace_service.engine import TraceAnalyzer, get_analyzer
 from atrace_service.models import (
     CallChainResponse,
@@ -172,21 +177,44 @@ def download_trace(
 
 @router.get(
     "/{trace_id:path}/open-in-perfetto",
-    summary="Open current trace in Perfetto UI",
+    summary="Open current trace in Perfetto UI via localhost:9001 (record_android_trace style)",
     description=(
-        "Redirect to https://ui.perfetto.dev with a prefilled trace download URL. "
-        "If browser blocks cross-origin/mixed-content fetch, use the /download endpoint manually."
+        "Serves the trace file once from http://127.0.0.1:9001/ with CORS headers, "
+        "then opens a browser tab pointing at ui.perfetto.dev with `url=` set to "
+        "that localhost URL — the same mechanism used by `record_android_trace`.\n\n"
+        "Falls back to a redirect-based approach if the localhost server cannot bind."
     ),
 )
-def open_in_perfetto(
+async def open_in_perfetto(
     trace_id: str,
     request: Request,
     analyzer: TraceAnalyzer = Depends(get_analyzer),
-) -> RedirectResponse:
+) -> JSONResponse:
     abs_path = _require_session(trace_id, analyzer)
-    _download_url, ui_url = _build_perfetto_urls(abs_path, request)
-    log.info("GET /trace/%s/open-in-perfetto -> %s", trace_id, ui_url)
-    return RedirectResponse(url=ui_url, status_code=307)
+    log.info("GET /trace/%s/open-in-perfetto (localhost mode)", trace_id)
+
+    result = await asyncio.to_thread(
+        open_trace_in_perfetto,
+        abs_path,
+        open_browser=True,
+        wait_for_ui_fetch=True,
+        wait_timeout_seconds=120.0,
+    )
+    payload = result.to_dict()
+
+    if result.error:
+        log.warning("open-in-perfetto localhost failed: %s — falling back to redirect", result.error)
+        _download_url, ui_url = _build_perfetto_urls(abs_path, request)
+        payload["fallback_redirect_url"] = ui_url
+        payload["notes"] = (
+            "Localhost HTTP server could not start (port 9001 busy?). "
+            "Use fallback_redirect_url or download the trace and open it "
+            "via ui.perfetto.dev → Open trace file."
+        )
+
+    log.info("GET /trace/%s/open-in-perfetto → browser=%s fetched=%s err=%s",
+             trace_id, result.opened_browser, result.fetched_by_ui, result.error)
+    return JSONResponse(content=payload)
 
 
 # ── Overview ──────────────────────────────────────────────────────────────────

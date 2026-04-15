@@ -154,11 +154,13 @@ async def _sse_scroll_stream(
     await asyncio.sleep(0)  # let other coroutines run
 
     try:
+        # scroll_performance_metrics(self, trace_path, **kwargs) — pass process/layer as keywords,
+        # not extra positionals (to_thread would otherwise raise "takes 2 positional arguments but 4 were given").
         result = await asyncio.to_thread(
             analyzer.scroll_performance_metrics,
             abs_path,
-            process,
-            layer_name_hint,
+            process=process,
+            layer_name_hint=layer_name_hint,
         )
     except Exception as exc:
         yield _emit("error", {"message": str(exc)})

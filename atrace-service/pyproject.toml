@@ -17,7 +17,12 @@ dependencies = [
     "pydantic>=2.0.0",
     "perfetto>=0.7.0",
     "httpx>=0.25.0",
+    "atrace-capture",
 ]
+
+# Monorepo: capture routes use `atrace_capture.device_controller` (Phase 6).
+[tool.uv.sources]
+atrace-capture = { path = "../atrace-capture", editable = true }
 
 # Inter-package deps resolved via monorepo editable install (./dev-setup.sh)
 # atrace-analyzer, atrace-device, atrace-ai, atrace-orchestrator

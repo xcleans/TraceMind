@@ -16,6 +16,7 @@ from tools._helpers import (
     safe_repr,
     validate_process,
 )
+from tools.perfetto_local_viewer import open_trace_via_local_http
 
 
 def register_query_tools(mcp, analyzer) -> None:
@@ -94,6 +95,80 @@ def register_query_tools(mcp, analyzer) -> None:
                 'or ensure exactly one trace session is already loaded.'
             )
         return _load_trace_run(resolved, process_name, source)
+
+    @mcp.tool
+    def open_trace_in_perfetto_browser(payload_json: str = '{}') -> str:
+        """Open a local trace in https://ui.perfetto.dev via the record_android_trace pattern.
+
+        Serves the file once from ``http://127.0.0.1:9001/<basename>`` with a CORS
+        header allowing the Perfetto UI origin, then (by default) opens a browser tab
+        pointing at ui.perfetto.dev with ``url=`` set to that localhost URL.
+
+        Args:
+            payload_json: JSON string object.
+                - trace_path: string, optional (fallback supported)
+                - open_browser: boolean, optional (default true)
+                - origin: string, optional (default https://ui.perfetto.dev)
+                - port: integer, optional (default 9001; should stay 9001 for CSP)
+                - wait_for_ui_fetch: boolean, optional (default true)
+                - wait_timeout_seconds: number, optional (default 120)
+                - ui_url_params: string array, optional (extra query params for the UI URL)
+                - startup_commands_json: string, optional (JSON array string for startupCommands)
+
+        Example:
+            {"trace_path":"/tmp/a.perfetto","open_browser":true}
+        """
+        log_tool_call('open_trace_in_perfetto_browser', payload_json=payload_json)
+        obj, err_payload = _parse_payload_json(payload_json)
+        if err_payload:
+            return f'Error: {err_payload}'
+        resolved, err = require_trace_path(obj.get('trace_path'), analyzer)
+        if err:
+            return err
+        open_browser = _to_bool(obj.get('open_browser'), True)
+        origin = str(obj.get('origin') or 'https://ui.perfetto.dev')
+        port = _to_int(obj.get('port'), 9001)
+        wait_for_ui_fetch = _to_bool(obj.get('wait_for_ui_fetch'), True)
+        wts = obj.get('wait_timeout_seconds', 120.0)
+        wait_timeout_seconds = float(wts) if wts is not None else 120.0
+        ui_url_params = obj.get('ui_url_params')
+        url_params_list: list[str] | None = None
+        if isinstance(ui_url_params, list):
+            url_params_list = [str(x) for x in ui_url_params]
+        raw_startup = obj.get('startup_commands_json', None)
+        startup_str: str | None
+        if raw_startup is None:
+            startup_str = None
+        else:
+            startup_str = str(raw_startup)
+            if not startup_str.strip():
+                startup_str = None
+
+        result = open_trace_via_local_http(
+            resolved,
+            open_browser=open_browser,
+            origin=origin,
+            port=port,
+            ui_url_params=url_params_list,
+            startup_commands_json=startup_str,
+            wait_for_ui_fetch=wait_for_ui_fetch,
+            wait_timeout_seconds=wait_timeout_seconds,
+        )
+        payload = {
+            'perfetto_url': result.perfetto_url,
+            'local_http_url': result.local_http_url,
+            'opened_browser': result.opened_browser,
+            'fetched_by_ui': result.fetched_by_ui,
+            'timed_out_waiting_for_fetch': result.timed_out,
+            'error': result.error,
+            'notes': (
+                'Uses the same mechanism as atrace-mcp/scripts/record_android_trace '
+                '(localhost HTTP + CORS + ui.perfetto.dev deep link). '
+                'If port 9001 is busy, free it or open the trace via '
+                'ui.perfetto.dev → Open trace file.'
+            ),
+        }
+        return json.dumps(payload, indent=2, default=str)
 
     @mcp.tool
     def trace_overview(payload_json: str = '{}') -> str:

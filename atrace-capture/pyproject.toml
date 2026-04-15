@@ -11,10 +11,16 @@ license = "Apache-2.0"
 dependencies = [
     "pydantic>=2.0.0",
     "pyyaml>=6.0",
+    "httpx>=0.25.0",
+    "atrace-device",
+    "atrace-provision",
 ]
 
-# Inter-package deps resolved via monorepo editable install (./dev-setup.sh)
-# atrace-device
+# Monorepo: `uv` resolves sibling packages as path deps (plain `pip install -e`
+# from PyPI still needs peers installed separately — use ./dev-setup.sh).
+[tool.uv.sources]
+atrace-device = { path = "../atrace-device", editable = true }
+atrace-provision = { path = "../atrace-provision", editable = true }
 
 [tool.setuptools.packages.find]
 where = ["."]

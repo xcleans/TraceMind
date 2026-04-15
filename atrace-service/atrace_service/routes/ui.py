@@ -491,13 +491,26 @@ function selectTrace(path) {
   switchTab(activeTab);
 }
 
-function openInPerfetto() {
+async function openInPerfetto() {
   if (!currentTrace) {
     alert('请先加载并选择一个 trace');
     return;
   }
-  const url = `/trace/${tid()}/open-in-perfetto`;
-  window.open(url, '_blank');
+  const btn = document.querySelector('[onclick*="openInPerfetto"]');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Opening…'; }
+  try {
+    const r = await fetch(`/trace/${tid()}/open-in-perfetto`);
+    const data = await r.json();
+    if (data.error && data.fallback_redirect_url) {
+      window.open(data.fallback_redirect_url, '_blank');
+    } else if (data.error) {
+      alert('Open Perfetto failed: ' + data.error);
+    }
+  } catch (e) {
+    alert('Open Perfetto failed: ' + e);
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '↗ Open Perfetto'; }
+  }
 }
 
 // ── Load Trace ─────────────────────────────────────────────────────────────
@@ -1536,7 +1549,10 @@ function renderScrollResult(d) {
   const verdict    = d.verdict || {};
   const assessment = (verdict.assessment || 'unknown').toLowerCase();
   const fd         = d.frame_duration || {};
-  const fq         = d.frame_quality  || [];
+  const fqRaw      = d.frame_quality;
+  const fq         = Array.isArray(fqRaw)
+    ? fqRaw
+    : (fqRaw && Array.isArray(fqRaw.distribution) ? fqRaw.distribution : []);
   const worst      = d.worst_frames   || [];
   const mt         = d.main_thread_top || [];
   const blocking   = d.blocking_calls  || [];
@@ -1555,9 +1571,9 @@ function renderScrollResult(d) {
     <div class="card">
       <div class="card-title">Frame Duration (ms)</div>
       <div class="metric-grid">
-        ${['p50','p90','p95','p99','max'].map(k => {
-          const v = fd[k] ?? '—';
-          return metric(k.toUpperCase(), typeof v === 'number' ? v.toFixed(1) : v, pctClass(v));
+        ${[['P50','p50_ms'],['P90','p90_ms'],['P95','p95_ms'],['P99','p99_ms'],['MAX','max_ms']].map(([label, key]) => {
+          const v = fd[key] ?? fd[key.replace('_ms','')] ?? '—';
+          return metric(label, typeof v === 'number' ? v.toFixed(1) : v, pctClass(v));
         }).join('')}
       </div>
     </div>

@@ -23,9 +23,12 @@ if _monorepo_path.is_file():
         sys.path.insert(0, str(_repo_root))
     import _monorepo; _monorepo.bootstrap()  # noqa: E702
 
+from atrace_capture.device_controller import DeviceController  # noqa: E402
+from atrace_capture.provision_bridge import (  # noqa: E402
+    atrace_tool_build_hint,
+    ensure_atrace_tool,
+)
 from atrace_device import AdbBridge, get_device_info_dict  # noqa: E402
-from device_controller import DeviceController  # noqa: E402
-import tool_provisioner  # noqa: E402
 
 
 
@@ -135,9 +138,9 @@ def capture_trace(
         out.mkdir(parents=True, exist_ok=True)
         output_file = str(out / f"{body.package}_{ts}.perfetto")
 
-        atrace_tool_cmd = tool_provisioner.ensure_atrace_tool()
+        atrace_tool_cmd = ensure_atrace_tool()
         if not atrace_tool_cmd:
-            raise HTTPException(status_code=400, detail=tool_provisioner.atrace_tool_build_hint())
+            raise HTTPException(status_code=400, detail=atrace_tool_build_hint())
 
         if body.inject_scroll:
             _spawn_scroll_during_capture(
@@ -177,7 +180,7 @@ def capture_trace(
             return {
                 "status": "error",
                 "capture_result": result,
-                "build_hint": tool_provisioner.atrace_tool_build_hint(),
+                "build_hint": atrace_tool_build_hint(),
             }
 
         merged_trace = result.get("merged_trace")

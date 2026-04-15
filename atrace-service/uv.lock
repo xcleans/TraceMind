@@ -35,10 +35,48 @@ wheels = [
 ]
 
 [[package]]
+name = "atrace-capture"
+version = "0.1.0"
+source = { editable = "../atrace-capture" }
+dependencies = [
+    { name = "atrace-device" },
+    { name = "atrace-provision" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "atrace-device", editable = "../atrace-device" },
+    { name = "atrace-provision", editable = "../atrace-provision" },
+    { name = "httpx", specifier = ">=0.25.0" },
+    { name = "pydantic", specifier = ">=2.0.0" },
+    { name = "pyyaml", specifier = ">=6.0" },
+]
+
+[[package]]
+name = "atrace-device"
+version = "0.1.0"
+source = { editable = "../atrace-device" }
+dependencies = [
+    { name = "httpx" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "httpx", specifier = ">=0.25.0" }]
+
+[[package]]
+name = "atrace-provision"
+version = "0.1.0"
+source = { editable = "../atrace-provision" }
+
+[[package]]
 name = "atrace-service"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "atrace-capture" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "perfetto" },
@@ -55,6 +93,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "atrace-capture", editable = "../atrace-capture" },
     { name = "fastapi", specifier = ">=0.111.0" },
     { name = "httpx", specifier = ">=0.25.0" },
     { name = "perfetto", specifier = ">=0.7.0" },

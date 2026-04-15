@@ -48,6 +48,7 @@ profile CPU with simpleperf, and profile heap memory with heapprofd.
 
 Workflow:
 1. Load a trace file with load_trace, or capture a new one with capture_trace
+   - Optional: open_trace_in_perfetto_browser — same localhost+CORS+deep-link flow as record_android_trace
 2. Use trace_overview to understand the high-level picture
 3. Use query_slices / execute_sql to drill into specifics
 4. Use analyze_startup / analyze_jank / analyze_scroll_performance for structured analysis

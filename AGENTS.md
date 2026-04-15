@@ -7,6 +7,7 @@
 | 工具 | 用途 |
 |------|------|
 | `load_trace` | 加载 trace，**每次分析第一步** |
+| `open_trace_in_perfetto_browser` | 本机起 HTTP（9001）+ 打开 ui.perfetto.dev 加载 trace（同 record_android_trace） |
 | `trace_overview` | 总览：时长、进程、slice 数量 |
 | `analyze_scroll_performance` | 滑动帧质量主力工具（verdict + 分布 + P95/P99） |
 | `analyze_startup` | 冷启动分析（bindApplication / onCreate / 阻塞调用） |
