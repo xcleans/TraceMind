@@ -1,4 +1,4 @@
-# TraceMind 蓝图说明
+# TraceMind
 
 ## 项目定位与目标
 
