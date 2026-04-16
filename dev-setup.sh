@@ -14,14 +14,14 @@ cd "$(dirname "$0")"
 INSTALLER="${1:-pip}"
 
 PACKAGES=(
-    atrace-device
-    atrace-provision
-    atrace-analyzer
-    atrace-capture
-    atrace-ai
-    atrace-orchestrator
-    atrace-mcp
-    atrace-service
+    platform/atrace-device
+    platform/atrace-provision
+    platform/atrace-analyzer
+    platform/atrace-capture
+    platform/atrace-ai
+    platform/atrace-orchestrator
+    platform/atrace-mcp
+    platform/atrace-service
 )
 
 echo "Installing TraceMind packages in editable mode (installer: $INSTALLER)..."

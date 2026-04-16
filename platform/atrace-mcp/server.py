@@ -1,0 +1,101 @@
+"""
+ATrace MCP Server — AI-driven Android performance analysis.
+
+Slim entry point: sets up FastMCP, creates core objects,
+delegates tool registration to tools/ subpackage.
+
+Usage:
+  python server.py                    # stdio mode (for Cursor/Claude Desktop)
+  python server.py --transport http   # HTTP mode (for testing)
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import sys
+from pathlib import Path
+
+from fastmcp import FastMCP
+
+# Unified logging bootstrap
+def _find_repo_root() -> Path:
+    here = Path(__file__).resolve()
+    for parent in here.parents:
+        if (parent / "platform" / "_monorepo.py").is_file():
+            return parent
+        if (parent / "_monorepo.py").is_file():
+            return parent.parent if parent.name == "platform" else parent
+    return here.parents[2]
+
+
+_repo_root = _find_repo_root()
+_module_dir = _repo_root / "platform"
+_logging_path = _module_dir / "_logging.py"
+if _logging_path.is_file():
+    if str(_module_dir) not in sys.path:
+        sys.path.insert(0, str(_module_dir))
+    from _logging import get_logger as _get_logger
+    _get_logger("atrace.mcp", log_file="atrace-mcp.log")
+
+import mcp_pipeline
+
+mcp_pipeline.install_fastmcp_tool_logging()
+
+from device_controller import DeviceController
+from trace_analyzer import TraceAnalyzer
+from prompts import register_prompts
+from tools import register_all_tools
+
+_log = logging.getLogger("atrace.mcp")
+_log.info("atrace-mcp server starting, cwd=%s", os.getcwd())
+
+mcp = FastMCP(
+    name="ATrace",
+    instructions="""You are an Android performance analysis agent.
+You have tools to capture Perfetto traces, query them with SQL,
+analyze startup/jank/memory issues, control tracing at runtime,
+profile CPU with simpleperf, and profile heap memory with heapprofd.
+
+Workflow:
+1. Load a trace file with load_trace, or capture a new one with capture_trace
+   - Optional: open_trace_in_perfetto_browser — same localhost+CORS+deep-link flow as record_android_trace
+2. Use trace_overview to understand the high-level picture
+3. Use query_slices / execute_sql to drill into specifics
+4. Use analyze_startup / analyze_jank / analyze_scroll_performance for structured analysis
+
+MCP Resources:
+- atrace://configs/* — Perfetto scenario configs (.txtpb)
+- atrace://perfetto-sql-reference — SQL tables + common queries
+- atrace://sql-patterns — PerfettoSQL snippets
+
+AI-driven Strategy:
+- Jank / UI slowness → capture_trace + analyze_jank + query_slices
+- Startup regression → capture_trace(cold_start=True) + analyze_startup
+- Native CPU hotspot → capture_cpu_profile + report_cpu_profile + generate_flamegraph
+- Memory leak / OOM → capture_heap_profile + analyze_heap_profile
+
+Always start by understanding what process the user cares about.""",
+)
+
+analyzer = TraceAnalyzer()
+controller = DeviceController()
+register_prompts(mcp)
+register_all_tools(mcp, analyzer, controller)
+
+
+if __name__ == "__main__":
+    transport = "stdio"
+    if "--transport" in sys.argv:
+        idx = sys.argv.index("--transport")
+        if idx + 1 < len(sys.argv):
+            transport = sys.argv[idx + 1]
+
+    mcp_pipeline.log_mcp_launch(transport=transport)
+
+    if transport == "http":
+        mcp.run(transport="streamable-http", host="0.0.0.0", port=8090, show_banner=False)
+    else:
+        logging.getLogger("fastmcp").setLevel(logging.ERROR)
+        logging.getLogger("mcp").setLevel(logging.ERROR)
+        mcp.run(show_banner=False)

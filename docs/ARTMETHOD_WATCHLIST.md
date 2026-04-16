@@ -139,7 +139,7 @@ Python：`DeviceController.get_http_port_from_content_provider(package_name)`。
 - `remove_watch_entry` / `remove_watch_pattern` → `op=remove`
 - `clear_watch_patterns` → `op=clear`
 
-详见仓库内 `atrace-mcp/README.md` 工具表。
+详见仓库内 `platform/atrace-mcp/README.md` 工具表。
 
 ---
 
@@ -156,8 +156,8 @@ Python：`DeviceController.get_http_port_from_content_provider(package_name)`。
 
 ## 9. 相关代码位置
 
-- Native：`atrace-core/src/main/cpp/hook/ArtMethodInstrumentation.{h,cpp}`
-- JNI：`atrace-core/src/main/cpp/jni/engine_jni.cpp`（`nativeAddWatchedRule` 等）
-- Kotlin 引擎：`atrace-core/.../TraceEngineCore.kt`
-- 公开入口：`atrace-api/.../ATrace.kt`
-- HTTP：`atrace-core/.../server/TraceServer.kt`（`action=watch`）
+- Native：`sdk/atrace-core/src/main/cpp/hook/ArtMethodInstrumentation.{h,cpp}`
+- JNI：`sdk/atrace-core/src/main/cpp/jni/engine_jni.cpp`（`nativeAddWatchedRule` 等）
+- Kotlin 引擎：`sdk/atrace-core/.../TraceEngineCore.kt`
+- 公开入口：`sdk/atrace-api/.../ATrace.kt`
+- HTTP：`sdk/atrace-core/.../server/TraceServer.kt`（`action=watch`）

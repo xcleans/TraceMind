@@ -1,4 +1,0 @@
-fastmcp>=2.0.0
-perfetto>=0.7.0
-httpx>=0.25.0
-pydantic>=2.0.0

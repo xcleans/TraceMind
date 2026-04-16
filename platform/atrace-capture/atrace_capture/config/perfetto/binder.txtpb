@@ -1,0 +1,119 @@
+# ============================================================
+# binder.txtpb — Binder 竞争 / 跨进程通信瓶颈场景
+#
+# 目标：定位 Binder 调用导致的主线程阻塞，包括：
+#   - 主线程同步 Binder 调用耗时
+#   - Binder 全局锁竞争（binder_lock）
+#   - Binder 线程池耗尽（server 侧无可用线程）
+#   - system_server 处理延迟（ss 侧 Binder 耗时）
+#   - AIDL 调用链追踪
+#
+# 分析方法：
+#   1. 在主线程找 binder transaction slice，耗时 > 5ms 需关注
+#   2. 对齐 server 侧（system_server / 目标 service）处理时长
+#   3. 查 binder_lock slice：持续锁竞争说明并发 Binder 过多
+#   4. 检查 Binder 线程池大小（默认 15 线程）
+#
+# 用法：
+#   adb shell perfetto --config - --txt -o /data/misc/perfetto-traces/binder.pb \
+#     < atrace-capture/atrace_capture/config/perfetto/binder.txtpb
+# ============================================================
+
+buffers {
+  size_kb: 65536          # 64 MB（Binder 事件密度中等）
+  fill_policy: DISCARD
+}
+buffers {
+  size_kb: 4096
+  fill_policy: DISCARD
+}
+
+data_sources {
+  config {
+    name: "linux.ftrace"
+    ftrace_config {
+      # ── 调度（Binder 等待期间线程状态）─────────────────────
+      ftrace_events: "sched/sched_switch"
+      ftrace_events: "sched/sched_wakeup"
+      ftrace_events: "sched/sched_wakeup_new"
+      ftrace_events: "sched/sched_waking"
+      ftrace_events: "sched/sched_blocked_reason" # Binder 等待时为 D 状态
+
+      ftrace_events: "sched/sched_process_exit"
+      ftrace_events: "sched/sched_process_free"
+      ftrace_events: "task/task_newtask"
+      ftrace_events: "task/task_rename"
+
+      ftrace_events: "power/cpu_frequency"
+      ftrace_events: "power/cpu_idle"
+
+      # ── Binder 内核事件（精确追踪每次事务）──────────────────
+      # 注意：binder_driver 开启后数据量显著增加，buffer 需充足
+      ftrace_events: "binder/binder_transaction"          # 事务发起
+      ftrace_events: "binder/binder_transaction_received" # 事务接收
+      ftrace_events: "binder/binder_transaction_alloc_buf" # buffer 分配
+      ftrace_events: "binder/binder_lock"                 # 全局锁等待
+      ftrace_events: "binder/binder_locked"               # 全局锁持有
+      ftrace_events: "binder/binder_unlock"               # 全局锁释放
+
+      ftrace_events: "ftrace/print"                       # 自定义 section
+
+      # ── atrace 类别 ──────────────────────────────────────────
+      atrace_categories: "binder_driver"  # Binder 内核驱动（用户态视角）
+      atrace_categories: "binder_lock"    # Binder 全局锁竞争
+      atrace_categories: "aidl"           # AIDL 接口调用标记
+      atrace_categories: "ss"             # system_server 端处理
+      atrace_categories: "sched"          # 线程调度关联
+      atrace_categories: "gfx"            # 判断 Binder 是否引发掉帧
+      atrace_categories: "view"
+
+      # 同时抓 system_server（Binder server 端）
+      atrace_apps: "com.your.app"         # ← 替换为实际包名
+
+      symbolize_ksyms: true
+      disable_generic_events: true
+    }
+  }
+}
+
+data_sources {
+  config {
+    name: "linux.process_stats"
+    target_buffer: 1
+    process_stats_config {
+      scan_all_processes_on_start: true
+    }
+  }
+}
+
+data_sources {
+  config {
+    name: "linux.sys_stats"
+    sys_stats_config {
+      stat_period_ms: 1000
+      stat_counters: STAT_CPU_TIMES
+      cpufreq_period_ms: 1000
+    }
+  }
+}
+
+# FrameTimeline（判断 Binder 阻塞是否引发帧超预算）
+data_sources {
+  config {
+    name: "android.surfaceflinger.frametimeline"
+  }
+}
+
+# Logcat（捕获 Binder 超时日志：TransactionTooLargeException / DeadObjectException）
+data_sources {
+  config {
+    name: "android.log"
+    android_log_config {
+      log_ids: LID_DEFAULT
+      log_ids: LID_SYSTEM
+    }
+  }
+}
+
+# Binder 竞争问题通常在高并发操作期间出现，12s 足够
+duration_ms: 12000

@@ -1,6 +1,0 @@
-./local.properties
-./build
-.gradle
-.kotlin
-.idea
-.venv

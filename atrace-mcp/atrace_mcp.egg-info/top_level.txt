@@ -1,7 +1,0 @@
-analyze_cli
-device_controller
-prompts
-run_mcp
-server
-tool_provisioner
-trace_analyzer

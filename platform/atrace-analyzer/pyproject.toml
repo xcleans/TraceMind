@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "atrace-analyzer"
+version = "0.1.0"
+description = "Trace analysis layer for TraceMind — SQL + metrics + headless atrace-analyze CLI"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+dependencies = ["perfetto>=0.7.0"]
+
+[project.scripts]
+atrace-analyze = "atrace_analyzer.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["atrace_analyzer*"]

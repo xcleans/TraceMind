@@ -35,25 +35,25 @@
 
 ### 0.2 推荐实践路径（从集成到结论）
 
-1. **被测 App**：依赖 **`atrace-core`**，在 `Application` 中 **`TraceEngineCore.register()`** 后 **`ATrace.init`**；保持 **`enableHttpServer`**（或与 `atrace-tool`/MCP 一致的端口转发），以便 PC 侧拉取采样。滑动/冷启动场景可与本文 **§2.3、§2.5** 的配置思路对齐。
+1. **被测 App**：依赖 **`atrace-core`**，在 `Application` 中 **`TraceEngineCore.register()`** 后 **`ATrace.init`**；保持 **`enableHttpServer`**（或与 `atrace-tool`/MCP 一致的端口转发），以便 PC 侧拉取采样。滑动/冷启动场景可与本文 **第 2.3、2.5 节** 的配置思路对齐。
 2. **采集**：任选其一  
    - **MCP**：对话里调用 `capture_trace(…, inject_scroll=True / cold_start=True)`（底层走 **`atrace-tool capture --json`**）；  
    - **CLI**：`java -jar atrace-tool-*.jar capture -a <包名> -t <秒> -o out.perfetto`。  
    得到 **含 FrameTimeline +（可选）应用 slice** 的合并文件。
 3. **分析**：任选其一  
-   - **Perfetto UI**（[ui.perfetto.dev](https://ui.perfetto.dev)）：按本文 **§3** 的 SOP 看轨道、对齐主线程与 SF；  
-   - **atrace-mcp**：`load_trace` 后 `analyze_scroll_performance`、`query_slices`、`execute_sql`（模板见 **§7**）。  
+   - **Perfetto UI**（[ui.perfetto.dev](https://ui.perfetto.dev)）：按本文 **第 3 节** 的 SOP 看轨道、对齐主线程与 SF；  
+   - **atrace-mcp**：`load_trace` 后 `analyze_scroll_performance`、`query_slices`、`execute_sql`（模板见 **第 7 节**）。  
    Trace Processor 在 MCP 进程内解析；与 **`atrace-tool`** 解耦（tool 只负责产出/合并文件）。
-4. **加深业务归因**：在 App 内用 **`Trace.beginSection`**（§4）或 **ATrace WatchList / 动态 hook**（§6.3），让超长帧在时间轴上能对应到具体模块名。
+4. **加深业务归因**：在 App 内用 **`Trace.beginSection`**（第 4 节）或 **ATrace WatchList / 动态 hook**（第 6.3 节），让超长帧在时间轴上能对应到具体模块名。
 
 ### 0.3 和本文各章怎么对照
 
 | 本文章节 | 模块侧重点 |
 |----------|------------|
-| **§2** 抓取配置 | 描述的是 **系统侧 Perfetto 数据源**；`atrace-tool` 使用的 config 与这里同一套思想，MCP 可通过参数或自定义 config 传入。 |
-| **§2.5 / §3.4** | 直接对应 **`atrace-mcp`** 工具名；底层采集仍依赖设备 +（建议）**`atrace-core` HTTP** + **`atrace-tool` JAR**。 |
-| **§4** | 系统 `android.os.Trace`；与 **`atrace-core`** 导出的 slice 可在同一 trace 时间轴对齐。 |
-| **§6.3** | **`atrace-core`** 的 ART 插桩与运行时控制，与 FrameTimeline 联合作归因。 |
+| **第 2 节** 抓取配置 | 描述的是 **系统侧 Perfetto 数据源**；`atrace-tool` 使用的 config 与这里同一套思想，MCP 可通过参数或自定义 config 传入。 |
+| **第 2.5 / 3.4 节** | 直接对应 **`atrace-mcp`** 工具名；底层采集仍依赖设备 +（建议）**`atrace-core` HTTP** + **`atrace-tool` JAR**。 |
+| **第 4 节** | 系统 `android.os.Trace`；与 **`atrace-core`** 导出的 slice 可在同一 trace 时间轴对齐。 |
+| **第 6.3 节** | **`atrace-core`** 的 ART 插桩与运行时控制，与 FrameTimeline 联合作归因。 |
 
 ---
 
@@ -156,9 +156,9 @@ data_sources { config { name: "android.log"
 
 > **原则**：categories 不是越多越好，无关 category 会增加 buffer 压力和 UI 噪声。
 
-### 2.4 全量配置文件（对应 `docs/config.txtpb`）
+### 2.4 全量配置文件（对应 `atrace-capture/.../config/perfetto/config.txtpb`）
 
-项目中 `docs/config.txtpb` 是一个包含所有常用数据源的"全量模板"，包括：
+项目中 **`atrace-capture`** 包内 **`config/perfetto/config.txtpb`** 是一个包含所有常用数据源的"全量模板"，包括：
 - `linux.ftrace`（全量 categories + `atrace_apps: "*"`）
 - `linux.process_stats` / `linux.sys_stats`
 - `android.heapprofd`（内存采样，`sampling_interval_bytes: 4096`）
@@ -409,7 +409,7 @@ SF 侧卡顿通常不是业务代码问题，排查路径：
 
 ### 6.1 建立"场景配置模板"体系
 
-项目在 `docs/configs/` 下维护了 5 份裁剪过的配置文件，**按场景直接使用，避免使用全量 `config.txtpb`**（全量版含 heapprofd/java_hprof，会带来不必要的开销和噪声）。
+项目在 **`platform/atrace-capture/atrace_capture/config/perfetto/`** 下维护了 5 份裁剪过的配置文件，**按场景直接使用，避免使用全量 `config.txtpb`**（全量版含 heapprofd/java_hprof，会带来不必要的开销和噪声）。
 
 #### 配置文件总览
 
@@ -457,19 +457,19 @@ SF 侧卡顿通常不是业务代码问题，排查路径：
 # 方式 1：直接用 adb + perfetto 命令行
 adb shell perfetto --config - --txt \
   -o /data/misc/perfetto-traces/out.pb \
-  < docs/configs/scroll.txtpb
+  < platform/atrace-capture/atrace_capture/config/perfetto/scroll.txtpb
 
 # 方式 2：通过 atrace-mcp（Cursor 对话中）
 capture_trace(
   package="com.your.app",
   duration_seconds=12,
   inject_scroll=True,
-  config="docs/configs/scroll.txtpb"
+  config="platform/atrace-capture/atrace_capture/config/perfetto/scroll.txtpb"
 )
 
-# 方式 3：使用 record_android_trace 脚本
-python3 atrace-mcp/scripts/record_android_trace \
-  -c docs/configs/scroll.txtpb \
+# 方式 3：使用 record_android_trace 脚本（随 atrace-provision 包安装；以下为仓库根目录相对路径）
+python3 platform/atrace-provision/atrace_provision/bundled_record_android_trace/record_android_trace \
+  -c platform/atrace-capture/atrace_capture/config/perfetto/scroll.txtpb \
   -o scroll_$(date +%H%M%S).pb
 ```
 
@@ -667,7 +667,7 @@ ORDER BY cpu;
 - [Android FrameTimeline 源码说明](https://source.android.com/docs/core/graphics/frametimeline)
 - [Perfetto UI 操作教程](https://perfetto.dev/docs/visualization/perfetto-ui)
 - 本项目 [ATRACE_ENGINEERING_GUIDE.md](./ATRACE_ENGINEERING_GUIDE.md)：采集 / `atrace-tool` / MCP 工程级关系
-- 本项目 [atrace-mcp/README.md](../atrace-mcp/README.md)（含 **Perfetto 场景配置**、`docs/configs` 选型、Prompt 与打包分发）
-- 本项目 [atrace-tool/README.md](../atrace-tool/README.md)：PC 端子命令与合并流水线
-- 本项目 [atrace-mcp/README.md](../atrace-mcp/README.md)：MCP 工具与 Prompt 全集
+- 本项目 [atrace-mcp/README.md](../platform/atrace-mcp/README.md)（含 **Perfetto 场景配置**、`atrace-capture` 包内模板选型、Prompt 与打包分发）
+- 本项目 [atrace-tool/README.md](../sdk/atrace-tool/README.md)：PC 端子命令与合并流水线
+- 本项目 [atrace-mcp/README.md](../platform/atrace-mcp/README.md)：MCP 工具与 Prompt 全集
 - 本项目 `docs/JANK_CHECKLIST.md`：10 分钟快速排查 + 深度分析 Checklist

@@ -8,11 +8,6 @@ plugins {
 }
 
 
-//composeCompiler {
-//    reportsDestination = layout.buildDirectory.dir("compose_compiler")
-//    stabilityConfigurationFile = rootProject.layout.projectDirectory.file("stability_config.conf")
-//}
-
 tasks.register("clean", Delete::class) {
     delete(rootProject.layout.buildDirectory)
 }
@@ -93,19 +88,20 @@ tasks.register("publishToLocalDir") {
     )
 }
 
-// ── MCP 独立部署 ──────────────────────────────────────────────────────────────
-// 构建 atrace-tool fat JAR 并复制到 atrace-mcp/bin/，使 MCP 服务器可独立分发。
+// ── MCP / provision 部署 ─────────────────────────────────────────────────────
+// 构建 atrace-tool fat JAR 并复制到 atrace-provision/atrace_provision/bundled_bin/，
+// 与 atrace-provision Python 包一起分发（AtraceToolProvider 解析）。
 //
 // 用法:
 //   ./gradlew deployMcp
 //
 // 产物:
-//   atrace-mcp/bin/atrace-tool.jar  ← MCP 运行时依赖的 JVM 工具
+//   atrace-provision/atrace_provision/bundled_bin/atrace-tool.jar
 //
-// 分发 MCP 时只需打包 atrace-mcp/ 目录（包含 bin/atrace-tool.jar）。
+// 分发 MCP 时需依赖已安装的 atrace-provision（wheel 含上述 JAR）。
 tasks.register("deployMcp") {
     group = "distribution"
-    description = "Build atrace-tool fat-JAR and deploy to atrace-mcp/bin/ for standalone MCP distribution"
+    description = "Build atrace-tool fat-JAR and deploy to atrace-provision bundled_bin/"
     dependsOn(":atrace-tool:deployToMcp")
 }
 

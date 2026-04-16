@@ -1,0 +1,12 @@
+# Include vendored AOSP simpleperf scripts in sdist/wheel
+recursive-include atrace_provision/bundled_simpleperf *
+
+# atrace-tool fat JAR (./gradlew deployMcp)
+recursive-include atrace_provision/bundled_bin *
+
+# Perfetto record_android_trace host scripts (heapprofd / stdin config path)
+recursive-include atrace_provision/bundled_record_android_trace *
+
+global-exclude __pycache__
+global-exclude *.pyc
+global-exclude .DS_Store

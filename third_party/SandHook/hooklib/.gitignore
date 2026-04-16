@@ -1,7 +1,0 @@
-./local.properties
-./build
-.gradle
-.kotlin
-.idea
-.cxx
-./bin

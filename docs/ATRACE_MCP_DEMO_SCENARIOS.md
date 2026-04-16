@@ -2,7 +2,7 @@
 
 本文说明如何在 **Cursor** 中通过 **`atrace-mcp`** 完成 **轨迹采集与分析自动化**：以对话编排 **增强采集（ATrace SDK + MCP 侧合并实现）→ 加载 → 预置分析 / 自定义 SQL**，使 **系统 Perfetto** 与 **应用侧 ATrace 数据** 在同一时间轴对齐，并由模型 **辅助选用工具、迭代查询与归纳结论**。文内给出 **可复现参数、示例输出量级及解读要点**（包名与路径请按本地环境替换）。
 
-**参考**：[atrace-mcp/README.md](../atrace-mcp/README.md)、根目录 [README.md](../README.md)（「Cursor MCP：AI 辅助下的轨迹分析」一节）、**[平台：场景编排 · 话术 · 报告模板](ATRACE_PLATFORM_SCENARIOS.md)**
+**参考**：[atrace-mcp/README.md](../platform/atrace-mcp/README.md)（含 **第 6 节** 场景编排 · 话术 · 报告模板）、根目录 [README.md](../README.md)（「Cursor MCP：AI 辅助下的轨迹分析」一节）
 
 ---
 
@@ -88,7 +88,7 @@ a.close(p)
 
 - **主线程**：`monitor contention` 可定位 **`nativeLoad` 串行**、**WebView 初始化**、**预加载线程与 inflate 抢锁** 等百毫秒级问题。  
 - **后台线程**：`pthread mutex`、Camera / OkHttp / MessageQueue 等争用，用于解释「启动期 CPU 忙但 UI 卡点不在主线程」类现象。  
-- 与 **§1 冷启动** 对照：DEX / Application 阶段与锁等待时间戳对齐，便于判断优化优先级。
+- 与 **第 1 节 冷启动** 对照：DEX / Application 阶段与锁等待时间戳对齐，便于判断优化优先级。
 
 ### SQL：主线程 monitor / Lock（`dur >= 3ms`）
 

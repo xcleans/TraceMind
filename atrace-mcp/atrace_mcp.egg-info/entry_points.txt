@@ -1,3 +1,0 @@
-[console_scripts]
-atrace-analyze = analyze_cli:main
-atrace-mcp = run_mcp:main

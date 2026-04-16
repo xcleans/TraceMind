@@ -1,0 +1,21 @@
+# MANIFEST.in — controls what goes into the sdist (source distribution)
+# Wheel packaging uses pyproject.toml [tool.setuptools.package-data]
+
+# Core Python source
+include *.py
+include requirements.txt
+include README.md
+include pyproject.toml
+
+# MCP helper scripts (record_android_trace lives in atrace-provision)
+include scripts/README.md
+
+# Exclude dev/test artifacts
+exclude test_*.py
+global-exclude __pycache__
+global-exclude *.pyc
+global-exclude *.pyo
+global-exclude .DS_Store
+prune dist
+prune build
+prune *.egg-info
